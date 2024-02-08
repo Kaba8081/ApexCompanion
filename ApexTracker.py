@@ -1,21 +1,42 @@
 import logging as log
 
-from enum import Enum
 import pygetwindow as gw
+import numpy as np
 import keyboard
 import sys
 import os
 
 from psutil import process_iter
+from enum import Enum
+
+from PIL import Image, ImageGrab
+import cv2
 
 class GameState(Enum):
-    LOBBY = 0
-    IN_DROPSHIP = 1
+    LOBBY = 1
     IN_GAME = 2
+    IN_DROPSHIP = 3
+    ALIVE = 4
+    KNOCKED = 5
+    DEAD = 6
 
 class TrackerControls(Enum):
-    EXIT = 0 # Close application
-    RECORDING = 1 # Start/Stop screen recording
+    EXIT = 1 # Close application
+    RECORDING = 2 # Start/Stop screen recording
+    INTERACT = 3 # In-game interact key
+    TACTITAL = 4 # Tactical ability
+    MOVE_FORWARD = 5 # Movement keys
+    MOVE_BACKWARD = 6
+    MOVE_LEFT = 7
+    MOVE_RIGHT = 8
+
+class ApexMaps(Enum):
+    LOBBY = 1
+    KINGS_CANYON = 2
+    WORLDS_EDGE = 3
+    OLYMPUS = 4
+    STORM_POINT = 5
+    BROKEN_MOON = 6
 
 class ApexTracker:
     def __init__(self, config, log_level=log.DEBUG) -> None:
@@ -23,6 +44,7 @@ class ApexTracker:
         self.CONFIG = config
 
         self.RECORDING = False
+        self.CURRENT_MAP = ApexMaps.LOBBY
 
         log.basicConfig(
             level=log_level,
@@ -31,21 +53,75 @@ class ApexTracker:
             datefmt="%Y-%m-%d %H:%M:%S",
             )
         
-    def startTracker(self, options: list):
-        pass
+    def start(self, options: list) -> None:
+        while True:
+            if self.gameIsRunning():
+                self.STATE = GameState.IN_GAME
+                break
 
     def update(self, action: TrackerControls) -> None:
-        if action == TrackerControls.EXIT:
-            log.info("Exiting...")
-            sys.exit(0)
-            
-        elif action == TrackerControls.RECORDING:
-            if self.STATE == GameState.IN_GAME and self.windowIsFocused():
-                self.RECORDING = not self.RECORDING
-                log.info(f"Recording: {self.RECORDING}")
+        match action:
+            case TrackerControls.EXIT:
+                log.info("Exiting...")
+                sys.exit(0)
+            case TrackerControls.RECORDING:
+                if self.STATE == GameState.IN_GAME and self.windowIsFocused():
+                    self.RECORDING = not self.RECORDING
+                    log.info(f"Recording: {self.RECORDING}")
         
         return
     
+    def checkGameState(self) -> GameState:
+        if self.windowIsFocused():
+            screen = self.captureScreen()
+            
+            # To be implemented
+
+    def saveDeathLocation(self, lastCapture) -> None:
+        if self.CONFIG["trackDeaths"]:
+            save_dir = os.path.join(self.CONFIG["dirDeathCapture"], self.CURRENT_MAP.name)
+            last_file = 0
+
+            # if the current map directory exists, get the last death id
+            dir_contents = os.listdir(save_dir)
+            if dir_contents:
+                last_file = sorted(dir_contents)[-1]
+                last_file = int(last_file.split(".")[0]) 
+
+            log.info("Saving death location...")
+            lastCapture.save(f"{save_dir}/{last_file+1}.png")
+            
+            return
+
+    def captureScreen(self) -> Image:
+        if self.windowIsFocused():
+            return ImageGrab.grab()
+        return None
+
+    def checkIfObjectOnScreen(self, object: str, conf: float=.8, screen: Image=None) -> bool:
+        if not screen:
+            screen = self.captureScreen()
+        
+        # convert PIL Image to numpy array
+        img_rgb = np.array(screen.convert('RGB')) 
+        # convert color space from RGB to GRAY
+        img_gray = cv2.cvtColor(img_rgb, cv2.COLOR_BGR2GRAY)
+
+        template = cv2.imread(f"{DIR_PATH}\game_assets\{object}.png", cv2.IMREAD_GRAYSCALE)
+        if template is None:
+            log.error(f"Error in loading template: {object}")
+            return False
+        
+        res = cv2.matchTemplate(img_gray, template, cv2.TM_CCOEFF_NORMED)
+        loc = np.where(res >= conf)
+
+        log.debug(f"Found {len(loc[0])} matches for {object} on screen.")
+
+        if len(loc[0]) > 0:
+            return True
+        return False
+        
+
     def gameIsRunning(self, process_name: str='r5apex.exe') -> bool:    
         return process_name in [p.name() for p in process_iter()]
     
@@ -54,11 +130,40 @@ class ApexTracker:
             return gw.getWindowsWithTitle(window_name)[0].isActive
         return False
 
+    def devFindOnScreen(self, object: str, conf: float=.8, screen: Image=None) -> None:
+        if not screen:
+            screen = self.captureScreen()
+
+        # convert PIL Image to numpy array
+        img_rgb = np.array(screen.convert('RGB')) 
+        # convert color space from RGB to GRAY
+        img_gray = cv2.cvtColor(img_rgb, cv2.COLOR_BGR2GRAY)
+
+        template = cv2.imread(f"{DIR_PATH}\game_assets\{object}.png", cv2.IMREAD_GRAYSCALE)
+        if template is None:
+            log.error(f"Error in loading template: {object}")
+            return False
+        
+        w, h = template.shape[::-1]
+        res = cv2.matchTemplate(img_gray, template, cv2.TM_CCOEFF_NORMED)
+        loc = np.where(res >= conf)
+
+        log.debug(f"Found {len(loc[0])} matches for {object} on screen.")
+
+        for pt in zip(*loc[::-1]):
+            cv2.rectangle(img_rgb, pt, (pt[0] + w, pt[1] + h), (0,0,255), 2)
+        cv2.imwrite('res.png', img_rgb)
+
 DIR_PATH = os.path.dirname(os.path.realpath(__file__))
+CAPTURE_PATH = os.path.join(DIR_PATH, "captures")
 KEYBINDS = {
+    # Companion keybinds
     "m" : TrackerControls.RECORDING, 
-    "pagedown" : TrackerControls.RECORDING, 
-    "pageup" : TrackerControls.EXIT,
+    "page down" : TrackerControls.RECORDING, 
+    "page up" : TrackerControls.EXIT,
+
+    # Apex Legends in-game controlls
+    "e": TrackerControls.INTERACT,
 }
 CONFIG = {
     # Companion features
@@ -68,17 +173,22 @@ CONFIG = {
     # configuration
     "screenCaptureDelay": 0.5, # in seconds, delay between screen captures
     "keybinds": KEYBINDS,
+    "dirPath": DIR_PATH,
+    "dirDeathCapture": CAPTURE_PATH,
 }
 
 if __name__ == "__main__":
     tracker = ApexTracker(CONFIG)
+
+    #tracker.devFindOnScreen("fill_teammates", conf=0.7, screen=Image.open(f"{DIR_PATH}/dev_assets/apexLobby.png"))
+    #tracker.devFindOnScreen("fill_teammates", conf=0.7)
 
     if tracker.gameIsRunning():
         while True:
             event = keyboard.read_event()
 
             if event.event_type == keyboard.KEY_DOWN and event.name in CONFIG["keybinds"].keys():
-                tracker.update(CONFIG["keybind"][event.name])
+                tracker.update(CONFIG["keybinds"][event.name])
     else:
         log.error("Apex Legends is not running.")
  
