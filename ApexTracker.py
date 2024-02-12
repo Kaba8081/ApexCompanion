@@ -3,6 +3,7 @@ import colorama
 import time
 
 import pygetwindow as gw
+import pytesseract
 import numpy as np
 import keyboard
 import sys
@@ -18,19 +19,21 @@ def debugAnalyzePerformance(func: callable) -> callable:
     def inner_func(*args, **kwargs):
         start = time.time()
         
-        func(*args, **kwargs)
+        result = func(*args, **kwargs)
 
         end = time.time()
 
         log.debug(f"Function '{func.__name__}' took '{str(end-start)[:6]}' seconds to execute.")
+
+        return result
     
     return inner_func
 
 class GameState(Enum):
+    LOGIN_SCREEN = 0
     LOBBY = 1
     IN_QUEUE = 2
     IN_DROPSHIP = 4
-    IN_GAME = 4
     ALIVE = 5
     KNOCKED = 6
     DEAD = 7
@@ -46,21 +49,15 @@ class TrackerControls(Enum):
     MOVE_RIGHT = 8
     DEBUG = 9 # Debugging purposes
 
-class ApexMaps(Enum):
-    LOBBY = 1
-    KINGS_CANYON = 2
-    WORLDS_EDGE = 3
-    OLYMPUS = 4
-    STORM_POINT = 5
-    BROKEN_MOON = 6
-
 class ApexTracker:
     def __init__(self, config, log_level=log.DEBUG) -> None:
-        self.STATE = GameState.LOBBY
+        self.STATE = GameState.LOGIN_SCREEN
         self.CONFIG = config
+        self.APEX_MAPS = self.CONFIG["maps"]
 
-        self.RECORDING = False
-        self.CURRENT_MAP = ApexMaps.LOBBY
+        self.current_map = "LOBBY"
+        self.recording = False
+        self.last_capture = None # last screen capture before death
 
         self.debug_ignore_focus = True
 
@@ -91,7 +88,6 @@ class ApexTracker:
                 log.debug(tracker.checkGameState())
         return
     
-    @debugAnalyzePerformance
     def checkGameState(self) -> GameState | None:
         if self.windowIsFocused():
             curr_screen = self.captureScreen()
@@ -103,53 +99,37 @@ class ApexTracker:
             # IN_QUEUE
             # LOBBY
             # IN_DROPSHIP
-            if self.devFindOnScreen(
+            if self.checkIfObjectOnScreen(
                                     ["ig_activate", "ig_bleedingOut"], 
                                     conf=.6, 
                                     screen=curr_screen.crop((53, 907, 1226, 1066))):
                 return GameState.KNOCKED
-            elif self.devFindOnScreen(
+            elif self.checkIfObjectOnScreen(
                                     "ig_alive", 
                                     conf=.7, 
                                     screen=curr_screen.crop((1624, 43, 1882, 98))):
+                self.last_capture = curr_screen
                 return GameState.ALIVE
-            elif self.devFindOnScreen(
+            elif self.checkIfObjectOnScreen(
                                     "ig_returnToLobby",
-                                    conf=.5,
-                                    screen=curr_screen.crop((1403, 1016, 1920, 1080)),
-                                    method=cv2.TM_SQDIFF_NORMED):
+                                    conf=.85,
+                                    screen=curr_screen.crop((1403, 1016, 1920, 1080))):
                 return GameState.DEAD
-            elif self.devFindOnScreen("lb_cancel", screen=curr_screen):
+            elif self.checkIfObjectOnScreen("lb_cancel", screen=curr_screen):
                 return GameState.IN_QUEUE
-            elif self.devFindOnScreen(
+            elif self.checkIfObjectOnScreen(
                                     ["lb_fill_teammates", "lb_ready"], 
                                     conf=.7, 
                                     screen=curr_screen.crop((0, 605, 444, 1080))
                                     ):
                 return GameState.LOBBY
-            elif self.devFindOnScreen(
+            elif self.checkIfObjectOnScreen(
                                     ["ds_ping", "ds_launch"], 
                                     conf=.7,
                                     screen=curr_screen.crop((737, 771, 1182, 1023))):
                 return GameState.IN_DROPSHIP
 
         return None
-    
-    def saveDeathLocation(self, lastCapture) -> None:
-        if self.CONFIG["trackDeaths"]:
-            save_dir = os.path.join(self.CONFIG["dirDeathCapture"], self.CURRENT_MAP.name)
-            last_file = 0
-
-            # if the current map directory exists, get the last death id
-            dir_contents = os.listdir(save_dir)
-            if dir_contents:
-                last_file = sorted(dir_contents)[-1]
-                last_file = int(last_file.split(".")[0]) 
-
-            log.info("Saving death location...")
-            lastCapture.save(f"{save_dir}/{last_file+1}.png")
-            
-            return
 
     def captureScreen(self) -> Image.Image | None:
         if self.windowIsFocused() or self.debug_ignore_focus:
@@ -166,7 +146,7 @@ class ApexTracker:
             # convert PIL Image to numpy array
             img_rgb = np.array(screen.convert('RGB')) 
             # convert color space from RGB to GRAY
-            img_gray = cv2.cvtColor(img_rgb, cv2.COLOR_BGR2GRAY)
+            img_gray = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY)
 
             template = cv2.imread(f"{DIR_PATH}\game_assets\{obj}.png", cv2.IMREAD_GRAYSCALE)
             if template is None:
@@ -176,12 +156,45 @@ class ApexTracker:
             res = cv2.matchTemplate(img_gray, template, cv2.TM_CCOEFF_NORMED)
             loc = np.where(res >= conf)
 
-            log.debug(f"Found {len(loc[0])} matches for {obj} on screen with {conf} confidence.")
-
             if len(loc[0]) > 0:
                 return True
-            return False
+        return False
+    
+    def saveDeathLocation(self, lastCapture: Image.Image) -> None:
+        if self.CONFIG["trackDeaths"]:
+            curr_map = self.current_map if self.current_map != "WORLO'S EDGE" else "WORLD'S EDGE"
+            save_dir = os.path.join(self.CONFIG["dirDeathCapture"], curr_map)
+            last_file = 0
 
+            # check if the directory exists, if not create it
+            if os.path.exists(save_dir):
+                # if the current map directory exists, get the last death id
+                dir_contents = os.listdir(save_dir)
+                if dir_contents:
+                    last_file = sorted(dir_contents)[-1]
+                    last_file = int(last_file.split(".")[0]) 
+            else:
+                os.makedirs(save_dir, exist_ok=True)
+
+            log.info(f"Saving death location '{save_dir}/{last_file+1}.png'...")
+            
+            lastCapture.crop((55, 55, 229, 229)).save(f"{save_dir}/{last_file+1}.png")
+            
+            return
+    
+    def updateMap(self, screen: Image.Image) -> None:
+        img = np.array(screen.convert('RGB')) 
+        img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY) 
+
+        curr_map = pytesseract.image_to_string(img).strip().upper()
+        log.debug(f"Map text: {curr_map}")
+
+        if curr_map in self.APEX_MAPS:
+            self.current_map = curr_map
+            log.info(f"Current map: {self.current_map}") 
+        
+        return
+    
     def gameIsRunning(self, process_name: str='r5apex.exe') -> bool | None:    
         return process_name in [p.name() for p in process_iter()]
     
@@ -192,7 +205,15 @@ class ApexTracker:
             return gw.getWindowsWithTitle(window_name)[0].isActive
         return False
 
-    def devFindOnScreen(self, object: str | list, conf: float=.8, screen: Image.Image=None, method=cv2.TM_CCOEFF_NORMED) -> bool:
+    @debugAnalyzePerformance
+    def devFindOnScreen(
+        self, 
+        object: str | list, 
+        conf: float=.8, 
+        screen: Image.Image=None, 
+        method=cv2.TM_CCOEFF_NORMED
+    ) -> bool:
+    
         if not screen:
             screen = self.captureScreen()
 
@@ -217,15 +238,18 @@ class ApexTracker:
             log.debug(f"Found {matches} matches for {obj} on screen with {conf} confidence.")
 
             for pt in zip(*loc[::-1]):
-                cv2.rectangle(img_rgb, pt, (pt[0] + w, pt[1] + h), (0,0,255), 2)
+                cv2.rectangle(img_rgb, pt, (pt[0] + w, pt[1] + h), (0, 0, 255), 2)
             cv2.imwrite(f'dev_{obj}.png', img_rgb)
 
             # if len(loc[0]) > 0:
             #     return True
             # return False
 
+pytesseract.pytesseract.tesseract_cmd = r'E:\przydatne programy\tesseract\tesseract.exe'
+
 DIR_PATH = os.path.dirname(os.path.realpath(__file__))
 CAPTURE_PATH = os.path.join(DIR_PATH, "captures")
+APEX_MAPS = ["LOBBY", "KINGS CANYON", "WORLO'S EDGE", "OLYMPUS", "STORM POINT", "BROKEN MOON"] # ocr mistakes "o" for "d"
 KEYBINDS = {
     # Companion keybinds
     "m" : TrackerControls.RECORDING, 
@@ -240,11 +264,12 @@ KEYBINDS = {
 }
 CONFIG = {
     # Companion features
-    "trackDeaths": False,
+    "trackDeaths": True,
     "autoQueue": False, # To be implemeneted
 
     # configuration
-    "screenCaptureDelay": 0.5, # in seconds, delay between screen captures
+    "maps": APEX_MAPS,
+    "screenCaptureDelay": .5, # in seconds, delay between screen captures
     "keybinds": KEYBINDS,
     "dirPath": DIR_PATH,
     "dirDeathCapture": CAPTURE_PATH,
@@ -258,10 +283,33 @@ if __name__ == "__main__":
 
     if tracker.gameIsRunning():
         while True:
-            event = keyboard.read_event()
+            # event = keyboard.read_event()
 
-            if event.event_type == keyboard.KEY_DOWN and event.name in CONFIG["keybinds"].keys():
-                tracker.update(CONFIG["keybinds"][event.name])
+            # if event.event_type == keyboard.KEY_DOWN and event.name in CONFIG["keybinds"].keys():
+            #     tracker.update(CONFIG["keybinds"][event.name])
+
+            new_state = tracker.checkGameState()
+
+            if tracker.STATE != new_state and new_state is not None:
+                if new_state in [GameState.IN_DROPSHIP, GameState.ALIVE]:
+                    tracker.last_capture = None
+                    tracker.recording = True
+                elif new_state in [GameState.KNOCKED, GameState.DEAD] and CONFIG["trackDeaths"]:
+                    if tracker.last_capture:
+                        tracker.saveDeathLocation(tracker.last_capture)
+                        tracker.last_capture = None
+                elif new_state == GameState.IN_QUEUE:
+                    tracker.updateMap(tracker.last_capture.crop((54, 859, 326, 896)))
+                elif new_state == GameState.LOBBY:
+                    tracker.last_capture = tracker.captureScreen()
+                    tracker.recording = False
+
+                log.info(f"Changing game state to '{new_state.name}'")
+                tracker.STATE = new_state
+            if tracker.recording:
+                time.sleep(CONFIG["screenCaptureDelay"])
+            else:
+                time.sleep(5)
     else:
         log.error("Apex Legends is not running.")
  
