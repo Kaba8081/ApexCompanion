@@ -1,4 +1,5 @@
 import logging as log
+import time
 
 import pygetwindow as gw
 import numpy as np
@@ -12,13 +13,26 @@ from enum import Enum
 from PIL import Image, ImageGrab
 import cv2
 
+def debugAnalyzePerformance(func: callable) -> callable:
+    def inner_func(*args, **kwargs):
+        start = time.time()
+        
+        func(*args, **kwargs)
+
+        end = time.time()
+
+        log.debug(f"Function '{func.__name__}' took '{str(end-start)[:6]}' seconds to execute.")
+    
+    return inner_func
+
 class GameState(Enum):
     LOBBY = 1
-    IN_GAME = 2
-    IN_DROPSHIP = 3
-    ALIVE = 4
-    KNOCKED = 5
-    DEAD = 6
+    IN_QUEUE = 2
+    IN_DROPSHIP = 4
+    IN_GAME = 4
+    ALIVE = 5
+    KNOCKED = 6
+    DEAD = 7
 
 class TrackerControls(Enum):
     EXIT = 1 # Close application
@@ -29,6 +43,7 @@ class TrackerControls(Enum):
     MOVE_BACKWARD = 6
     MOVE_LEFT = 7
     MOVE_RIGHT = 8
+    DEBUG = 9 # Debugging purposes
 
 class ApexMaps(Enum):
     LOBBY = 1
@@ -46,10 +61,12 @@ class ApexTracker:
         self.RECORDING = False
         self.CURRENT_MAP = ApexMaps.LOBBY
 
+        self.debug_ignore_focus = True
+
         log.basicConfig(
             level=log_level,
             #filename='apex_tracker.log', # uncomment to disable console logs
-            format='[%(asctime)s][%(levelname)s] %(message)s',
+            format='[%(levelname)s] %(message)s',
             datefmt="%Y-%m-%d %H:%M:%S",
             )
         
@@ -68,15 +85,49 @@ class ApexTracker:
                 if self.STATE == GameState.IN_GAME and self.windowIsFocused():
                     self.RECORDING = not self.RECORDING
                     log.info(f"Recording: {self.RECORDING}")
-        
+            case TrackerControls.DEBUG:
+                # used for debugging purposes
+                log.debug(tracker.checkGameState())
         return
     
-    def checkGameState(self) -> GameState:
-        if self.windowIsFocused():
-            screen = self.captureScreen()
+    @debugAnalyzePerformance
+    def checkGameState(self) -> GameState or None:
+        if self.windowIsFocused() or self.debug_ignore_focus:
+            curr_screen = self.captureScreen()
             
-            # To be implemented
+            # Order of checks:
+            # KNOCKED
+            # IN_GAME
+            # DEAD
+            # IN_QUEUE
+            # LOBBY
+            # IN_DROPSHIP
+            if self.devFindOnScreen(
+                                    ["ig_activate", "ig_bleedingOut"], 
+                                    conf=.7, 
+                                    screen=curr_screen.crop((53, 907, 1226, 1066))):
+                return GameState.KNOCKED
+            elif self.devFindOnScreen(
+                                    "ig_alive", 
+                                    conf=.7, 
+                                    screen=curr_screen.crop((1624, 43, 1882, 98))):
+                return GameState.ALIVE
+            elif self.devFindOnScreen("lb_cancel", screen=curr_screen):
+                return GameState.IN_QUEUE
+            elif self.devFindOnScreen(
+                                    ["lb_fill_teammates", "lb_ready"], 
+                                    conf=.7, 
+                                    screen=curr_screen.crop((0, 605, 444, 1080))
+                                    ):
+                return GameState.LOBBY
+            elif self.devFindOnScreen(
+                                    ["ds_ping", "ds_launch"], 
+                                    conf=.7,
+                                    screen=curr_screen.crop((737, 771, 1182, 1023))):
+                return GameState.IN_DROPSHIP
 
+        return None
+    
     def saveDeathLocation(self, lastCapture) -> None:
         if self.CONFIG["trackDeaths"]:
             save_dir = os.path.join(self.CONFIG["dirDeathCapture"], self.CURRENT_MAP.name)
@@ -93,66 +144,73 @@ class ApexTracker:
             
             return
 
-    def captureScreen(self) -> Image:
-        if self.windowIsFocused():
+    def captureScreen(self) -> Image or None:
+        if self.windowIsFocused() or self.debug_ignore_focus:
             return ImageGrab.grab()
         return None
 
-    def checkIfObjectOnScreen(self, object: str, conf: float=.8, screen: Image=None) -> bool:
+    def checkIfObjectOnScreen(self, object: str or list, conf: float=.8, screen: Image=None) -> bool:
         if not screen:
             screen = self.captureScreen()
         
-        # convert PIL Image to numpy array
-        img_rgb = np.array(screen.convert('RGB')) 
-        # convert color space from RGB to GRAY
-        img_gray = cv2.cvtColor(img_rgb, cv2.COLOR_BGR2GRAY)
+        object = [object] if type(object) == str else object
 
-        template = cv2.imread(f"{DIR_PATH}\game_assets\{object}.png", cv2.IMREAD_GRAYSCALE)
-        if template is None:
-            log.error(f"Error in loading template: {object}")
+        for obj in object:
+            # convert PIL Image to numpy array
+            img_rgb = np.array(screen.convert('RGB')) 
+            # convert color space from RGB to GRAY
+            img_gray = cv2.cvtColor(img_rgb, cv2.COLOR_BGR2GRAY)
+
+            template = cv2.imread(f"{DIR_PATH}\game_assets\{obj}.png", cv2.IMREAD_GRAYSCALE)
+            if template is None:
+                log.error(f"Error in loading template: {obj}")
+                return False
+            
+            res = cv2.matchTemplate(img_gray, template, cv2.TM_CCOEFF_NORMED)
+            loc = np.where(res >= conf)
+
+            log.debug(f"Found {len(loc[0])} matches for {obj} on screen with {conf} confidence.")
+
+            if len(loc[0]) > 0:
+                return True
             return False
-        
-        res = cv2.matchTemplate(img_gray, template, cv2.TM_CCOEFF_NORMED)
-        loc = np.where(res >= conf)
 
-        log.debug(f"Found {len(loc[0])} matches for {object} on screen.")
-
-        if len(loc[0]) > 0:
-            return True
-        return False
-        
-
-    def gameIsRunning(self, process_name: str='r5apex.exe') -> bool:    
+    def gameIsRunning(self, process_name: str='r5apex.exe') -> bool or None:    
         return process_name in [p.name() for p in process_iter()]
     
-    def windowIsFocused(self, window_name: str='Apex Legends') -> bool:
+    def windowIsFocused(self, window_name: str='Apex Legends') -> bool or None:
         if self.gameIsRunning():
             return gw.getWindowsWithTitle(window_name)[0].isActive
+        elif self.debug_ignore_focus:
+            return True
         return False
 
-    def devFindOnScreen(self, object: str, conf: float=.8, screen: Image=None) -> None:
+    def devFindOnScreen(self, object: str or list, conf: float=.8, screen: Image=None) -> None:
         if not screen:
             screen = self.captureScreen()
 
-        # convert PIL Image to numpy array
-        img_rgb = np.array(screen.convert('RGB')) 
-        # convert color space from RGB to GRAY
-        img_gray = cv2.cvtColor(img_rgb, cv2.COLOR_BGR2GRAY)
+        object = [object] if type(object) == str else object
 
-        template = cv2.imread(f"{DIR_PATH}\game_assets\{object}.png", cv2.IMREAD_GRAYSCALE)
-        if template is None:
-            log.error(f"Error in loading template: {object}")
-            return False
-        
-        w, h = template.shape[::-1]
-        res = cv2.matchTemplate(img_gray, template, cv2.TM_CCOEFF_NORMED)
-        loc = np.where(res >= conf)
+        for obj in object:
+            # convert PIL Image to numpy array
+            img_rgb = np.array(screen.convert('RGB')) 
+            # convert color space from RGB to GRAY
+            img_gray = cv2.cvtColor(img_rgb, cv2.COLOR_BGR2GRAY)
 
-        log.debug(f"Found {len(loc[0])} matches for {object} on screen.")
+            template = cv2.imread(f"{DIR_PATH}\game_assets\{obj}.png", cv2.IMREAD_GRAYSCALE)
+            if template is None:
+                log.error(f"Error in loading template: {obj}")
+                return False
+            
+            w, h = template.shape[::-1]
+            res = cv2.matchTemplate(img_gray, template, cv2.TM_CCOEFF_NORMED)
+            loc = np.where(res >= conf)
 
-        for pt in zip(*loc[::-1]):
-            cv2.rectangle(img_rgb, pt, (pt[0] + w, pt[1] + h), (0,0,255), 2)
-        cv2.imwrite('res.png', img_rgb)
+            log.debug(f"Found {len(loc[0])} matches for {obj} on screen with {conf} confidence.")
+
+            for pt in zip(*loc[::-1]):
+                cv2.rectangle(img_rgb, pt, (pt[0] + w, pt[1] + h), (0,0,255), 2)
+            cv2.imwrite(f'res_{obj}.png', img_rgb)
 
 DIR_PATH = os.path.dirname(os.path.realpath(__file__))
 CAPTURE_PATH = os.path.join(DIR_PATH, "captures")
@@ -164,6 +222,9 @@ KEYBINDS = {
 
     # Apex Legends in-game controlls
     "e": TrackerControls.INTERACT,
+
+    # Debug keybinds
+    "end": TrackerControls.DEBUG,
 }
 CONFIG = {
     # Companion features
