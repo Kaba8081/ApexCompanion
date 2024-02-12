@@ -1,4 +1,5 @@
 import logging as log
+import colorama
 import time
 
 import pygetwindow as gw
@@ -91,8 +92,8 @@ class ApexTracker:
         return
     
     @debugAnalyzePerformance
-    def checkGameState(self) -> GameState or None:
-        if self.windowIsFocused() or self.debug_ignore_focus:
+    def checkGameState(self) -> GameState | None:
+        if self.windowIsFocused():
             curr_screen = self.captureScreen()
             
             # Order of checks:
@@ -104,7 +105,7 @@ class ApexTracker:
             # IN_DROPSHIP
             if self.devFindOnScreen(
                                     ["ig_activate", "ig_bleedingOut"], 
-                                    conf=.7, 
+                                    conf=.6, 
                                     screen=curr_screen.crop((53, 907, 1226, 1066))):
                 return GameState.KNOCKED
             elif self.devFindOnScreen(
@@ -112,6 +113,12 @@ class ApexTracker:
                                     conf=.7, 
                                     screen=curr_screen.crop((1624, 43, 1882, 98))):
                 return GameState.ALIVE
+            elif self.devFindOnScreen(
+                                    "ig_returnToLobby",
+                                    conf=.5,
+                                    screen=curr_screen.crop((1403, 1016, 1920, 1080)),
+                                    method=cv2.TM_SQDIFF_NORMED):
+                return GameState.DEAD
             elif self.devFindOnScreen("lb_cancel", screen=curr_screen):
                 return GameState.IN_QUEUE
             elif self.devFindOnScreen(
@@ -144,12 +151,12 @@ class ApexTracker:
             
             return
 
-    def captureScreen(self) -> Image or None:
+    def captureScreen(self) -> Image.Image | None:
         if self.windowIsFocused() or self.debug_ignore_focus:
             return ImageGrab.grab()
         return None
 
-    def checkIfObjectOnScreen(self, object: str or list, conf: float=.8, screen: Image=None) -> bool:
+    def checkIfObjectOnScreen(self, object: str | list, conf: float=.8, screen: Image.Image=None) -> bool:
         if not screen:
             screen = self.captureScreen()
         
@@ -175,17 +182,17 @@ class ApexTracker:
                 return True
             return False
 
-    def gameIsRunning(self, process_name: str='r5apex.exe') -> bool or None:    
+    def gameIsRunning(self, process_name: str='r5apex.exe') -> bool | None:    
         return process_name in [p.name() for p in process_iter()]
     
-    def windowIsFocused(self, window_name: str='Apex Legends') -> bool or None:
-        if self.gameIsRunning():
-            return gw.getWindowsWithTitle(window_name)[0].isActive
-        elif self.debug_ignore_focus:
+    def windowIsFocused(self, window_name: str='Apex Legends') -> bool | None:
+        if self.debug_ignore_focus:
             return True
+        elif self.gameIsRunning():
+            return gw.getWindowsWithTitle(window_name)[0].isActive
         return False
 
-    def devFindOnScreen(self, object: str or list, conf: float=.8, screen: Image=None) -> None:
+    def devFindOnScreen(self, object: str | list, conf: float=.8, screen: Image.Image=None, method=cv2.TM_CCOEFF_NORMED) -> bool:
         if not screen:
             screen = self.captureScreen()
 
@@ -203,14 +210,19 @@ class ApexTracker:
                 return False
             
             w, h = template.shape[::-1]
-            res = cv2.matchTemplate(img_gray, template, cv2.TM_CCOEFF_NORMED)
+            res = cv2.matchTemplate(img_gray, template, method)
             loc = np.where(res >= conf)
+            matches = f"{colorama.Fore.RED if len(loc[0]) == 0 else colorama.Fore.GREEN}{len(loc[0])}{colorama.Style.RESET_ALL}"
 
-            log.debug(f"Found {len(loc[0])} matches for {obj} on screen with {conf} confidence.")
+            log.debug(f"Found {matches} matches for {obj} on screen with {conf} confidence.")
 
             for pt in zip(*loc[::-1]):
                 cv2.rectangle(img_rgb, pt, (pt[0] + w, pt[1] + h), (0,0,255), 2)
-            cv2.imwrite(f'res_{obj}.png', img_rgb)
+            cv2.imwrite(f'dev_{obj}.png', img_rgb)
+
+            # if len(loc[0]) > 0:
+            #     return True
+            # return False
 
 DIR_PATH = os.path.dirname(os.path.realpath(__file__))
 CAPTURE_PATH = os.path.join(DIR_PATH, "captures")
