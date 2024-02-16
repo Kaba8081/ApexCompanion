@@ -55,8 +55,9 @@ class ApexTracker:
         self.CONFIG = config
         self.APEX_MAPS = self.CONFIG["maps"]
 
+        self.is_running = True
         self.current_map = "LOBBY"
-        self.recording = False
+        self.recording = True
         self.last_capture = None # last screen capture before death
 
         self.debug_ignore_focus = True
@@ -67,28 +68,27 @@ class ApexTracker:
             format='[%(levelname)s] %(message)s',
             datefmt="%Y-%m-%d %H:%M:%S",
             )
-        
-    def start(self, options: list) -> None:
-        while True:
-            if self.gameIsRunning():
-                self.STATE = GameState.IN_GAME
-                break
 
     def update(self, action: TrackerControls) -> None:
         match action:
             case TrackerControls.EXIT:
                 log.info("Exiting...")
+                self.is_running = False
                 sys.exit(0)
+
             case TrackerControls.RECORDING:
-                if self.STATE == GameState.IN_GAME and self.windowIsFocused():
-                    self.RECORDING = not self.RECORDING
-                    log.info(f"Recording: {self.RECORDING}")
+                # TODO: fix - when passing trough keyboard module, value does not change
+                self.recoding = not self.recording
+                log.info(f"Recording: {self.recording}")
+
             case TrackerControls.DEBUG:
                 # used for debugging purposes
                 log.debug(tracker.checkGameState())
         return
     
     def checkGameState(self) -> GameState | None:
+        # Check the current screen for its state and return the corresponding GameState
+
         if self.windowIsFocused():
             curr_screen = self.captureScreen()
             
@@ -132,11 +132,13 @@ class ApexTracker:
         return None
 
     def captureScreen(self) -> Image.Image | None:
-        if self.windowIsFocused() or self.debug_ignore_focus:
+        if (self.windowIsFocused() or self.debug_ignore_focus) and self.recording:
             return ImageGrab.grab()
         return None
 
     def checkIfObjectOnScreen(self, object: str | list, conf: float=.8, screen: Image.Image=None) -> bool:
+        # Find given object on screen and return True if found, False otherwise
+
         if not screen:
             screen = self.captureScreen()
         
@@ -192,6 +194,8 @@ class ApexTracker:
         if curr_map in self.APEX_MAPS:
             self.current_map = curr_map
             log.info(f"Current map: {self.current_map}") 
+        else: 
+            log.warning(f"Map name not recognized: {curr_map}")
         
         return
     
@@ -213,7 +217,7 @@ class ApexTracker:
         screen: Image.Image=None, 
         method=cv2.TM_CCOEFF_NORMED
     ) -> bool:
-    
+
         if not screen:
             screen = self.captureScreen()
 
@@ -278,38 +282,37 @@ CONFIG = {
 if __name__ == "__main__":
     tracker = ApexTracker(CONFIG)
 
-    #tracker.devFindOnScreen("fill_teammates", conf=0.7, screen=Image.open(f"{DIR_PATH}/dev_assets/apexLobby.png"))
-    #tracker.devFindOnScreen("fill_teammates", conf=0.7)
+    for key in tracker.CONFIG["keybinds"].keys():
+        keyboard.add_hotkey(key, tracker.update, args=(tracker.CONFIG["keybinds"][key],))
 
-    if tracker.gameIsRunning():
-        while True:
-            # event = keyboard.read_event()
-
-            # if event.event_type == keyboard.KEY_DOWN and event.name in CONFIG["keybinds"].keys():
-            #     tracker.update(CONFIG["keybinds"][event.name])
-
+    if tracker.gameIsRunning() or tracker.debug_ignore_focus:
+        while tracker.is_running:
             new_state = tracker.checkGameState()
 
             if tracker.STATE != new_state and new_state is not None:
                 if new_state in [GameState.IN_DROPSHIP, GameState.ALIVE]:
                     tracker.last_capture = None
                     tracker.recording = True
+
                 elif new_state in [GameState.KNOCKED, GameState.DEAD] and CONFIG["trackDeaths"]:
                     if tracker.last_capture:
                         tracker.saveDeathLocation(tracker.last_capture)
                         tracker.last_capture = None
+
                 elif new_state == GameState.IN_QUEUE:
                     tracker.updateMap(tracker.last_capture.crop((54, 859, 326, 896)))
+
                 elif new_state == GameState.LOBBY:
                     tracker.last_capture = tracker.captureScreen()
                     tracker.recording = False
 
                 log.info(f"Changing game state to '{new_state.name}'")
                 tracker.STATE = new_state
+                
             if tracker.recording:
                 time.sleep(CONFIG["screenCaptureDelay"])
             else:
-                time.sleep(5)
+                time.sleep(3)
     else:
         log.error("Apex Legends is not running.")
  
