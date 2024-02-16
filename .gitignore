@@ -1,5 +1,6 @@
 venv/
 dev_assets/
+captures/
 apex_tracker.log
 res.png
 game_assets/results.txt
