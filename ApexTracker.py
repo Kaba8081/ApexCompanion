@@ -1,11 +1,10 @@
 import logging as log
 import colorama
-import time
 
 import pygetwindow as gw
 import pytesseract
 import numpy as np
-import keyboard
+import time
 import sys
 import os
 
@@ -14,20 +13,6 @@ from enum import Enum
 
 from PIL import Image, ImageGrab
 import cv2
-
-def debugAnalyzePerformance(func: callable) -> callable:
-    def inner_func(*args, **kwargs):
-        start = time.time()
-        
-        result = func(*args, **kwargs)
-
-        end = time.time()
-
-        log.debug(f"Function '{func.__name__}' took '{str(end-start)[:6]}' seconds to execute.")
-
-        return result
-    
-    return inner_func
 
 class GameState(Enum):
     LOGIN_SCREEN = 0
@@ -49,8 +34,22 @@ class TrackerControls(Enum):
     MOVE_RIGHT = 8
     DEBUG = 9 # Debugging purposes
 
+def debugAnalyzePerformance(func: callable) -> callable:
+    def inner_func(*args, **kwargs):
+        start = time.time()
+        
+        result = func(*args, **kwargs)
+
+        end = time.time()
+
+        log.debug(f"Function '{func.__name__}' took '{str(end-start)[:6]}' seconds to execute.")
+
+        return result
+    
+    return inner_func
+
 class ApexTracker:
-    def __init__(self, config, log_level=log.DEBUG) -> None:
+    def __init__(self, config, log_level=log.DEBUG, ignore_checks=False) -> None:
         self.STATE = GameState.LOGIN_SCREEN
         self.CONFIG = config
         self.APEX_MAPS = self.CONFIG["maps"]
@@ -60,7 +59,7 @@ class ApexTracker:
         self.recording = True
         self.last_capture = None # last screen capture before death
 
-        self.debug_ignore_focus = True
+        self.debug_ignore_focus = ignore_checks
 
         log.basicConfig(
             level=log_level,
@@ -75,23 +74,16 @@ class ApexTracker:
                 log.info("Exiting...")
                 self.is_running = False
                 sys.exit(0)
-
-            case TrackerControls.RECORDING:
-                # TODO: fix - when passing trough keyboard module, value does not change
-                self.recoding = not self.recording
-                log.info(f"Recording: {self.recording}")
-
             case TrackerControls.DEBUG:
                 # used for debugging purposes
-                log.debug(tracker.checkGameState())
+                log.debug(self.checkGameState())
         return
     
     def checkGameState(self) -> GameState | None:
         # Check the current screen for its state and return the corresponding GameState
+        curr_screen = self.captureScreen()
 
-        if self.windowIsFocused():
-            curr_screen = self.captureScreen()
-            
+        if curr_screen:
             # Order of checks:
             # KNOCKED
             # IN_GAME
@@ -99,6 +91,7 @@ class ApexTracker:
             # IN_QUEUE
             # LOBBY
             # IN_DROPSHIP
+
             if self.checkIfObjectOnScreen(
                                     ["ig_activate", "ig_bleedingOut"], 
                                     conf=.6, 
@@ -132,7 +125,7 @@ class ApexTracker:
         return None
 
     def captureScreen(self) -> Image.Image | None:
-        if (self.windowIsFocused() or self.debug_ignore_focus) and self.recording:
+        if self.windowIsFocused() and self.recording:
             return ImageGrab.grab()
         return None
 
@@ -150,7 +143,7 @@ class ApexTracker:
             # convert color space from RGB to GRAY
             img_gray = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY)
 
-            template = cv2.imread(f"{DIR_PATH}\game_assets\{obj}.png", cv2.IMREAD_GRAYSCALE)
+            template = cv2.imread(f'{self.CONFIG["dirPath"]}\game_assets\{obj}.png', cv2.IMREAD_GRAYSCALE)
             if template is None:
                 log.error(f"Error in loading template: {obj}")
                 return False
@@ -209,7 +202,10 @@ class ApexTracker:
             return gw.getWindowsWithTitle(window_name)[0].isActive
         return False
 
-    @debugAnalyzePerformance
+    def pauseRecording(self) -> None:
+        self.recording = not self.recording
+        log.info(f"Recording: {self.recording}")
+
     def devFindOnScreen(
         self, 
         object: str | list, 
@@ -229,7 +225,7 @@ class ApexTracker:
             # convert color space from RGB to GRAY
             img_gray = cv2.cvtColor(img_rgb, cv2.COLOR_BGR2GRAY)
 
-            template = cv2.imread(f"{DIR_PATH}\game_assets\{obj}.png", cv2.IMREAD_GRAYSCALE)
+            template = cv2.imread(f'{self.CONFIG["dirPath"]}\game_assets\{obj}.png', cv2.IMREAD_GRAYSCALE)
             if template is None:
                 log.error(f"Error in loading template: {obj}")
                 return False
@@ -248,72 +244,3 @@ class ApexTracker:
             # if len(loc[0]) > 0:
             #     return True
             # return False
-
-pytesseract.pytesseract.tesseract_cmd = r'E:\przydatne programy\tesseract\tesseract.exe'
-
-DIR_PATH = os.path.dirname(os.path.realpath(__file__))
-CAPTURE_PATH = os.path.join(DIR_PATH, "captures")
-APEX_MAPS = ["LOBBY", "KINGS CANYON", "WORLO'S EDGE", "OLYMPUS", "STORM POINT", "BROKEN MOON"] # ocr mistakes "o" for "d"
-KEYBINDS = {
-    # Companion keybinds
-    "m" : TrackerControls.RECORDING, 
-    "page down" : TrackerControls.RECORDING, 
-    "page up" : TrackerControls.EXIT,
-
-    # Apex Legends in-game controlls
-    "e": TrackerControls.INTERACT,
-
-    # Debug keybinds
-    "end": TrackerControls.DEBUG,
-}
-CONFIG = {
-    # Companion features
-    "trackDeaths": True,
-    "autoQueue": False, # To be implemeneted
-
-    # configuration
-    "maps": APEX_MAPS,
-    "screenCaptureDelay": .5, # in seconds, delay between screen captures
-    "keybinds": KEYBINDS,
-    "dirPath": DIR_PATH,
-    "dirDeathCapture": CAPTURE_PATH,
-}
-
-if __name__ == "__main__":
-    tracker = ApexTracker(CONFIG)
-
-    for key in tracker.CONFIG["keybinds"].keys():
-        keyboard.add_hotkey(key, tracker.update, args=(tracker.CONFIG["keybinds"][key],))
-
-    if tracker.gameIsRunning() or tracker.debug_ignore_focus:
-        while tracker.is_running:
-            new_state = tracker.checkGameState()
-
-            if tracker.STATE != new_state and new_state is not None:
-                if new_state in [GameState.IN_DROPSHIP, GameState.ALIVE]:
-                    tracker.last_capture = None
-                    tracker.recording = True
-
-                elif new_state in [GameState.KNOCKED, GameState.DEAD] and CONFIG["trackDeaths"]:
-                    if tracker.last_capture:
-                        tracker.saveDeathLocation(tracker.last_capture)
-                        tracker.last_capture = None
-
-                elif new_state == GameState.IN_QUEUE:
-                    tracker.updateMap(tracker.last_capture.crop((54, 859, 326, 896)))
-
-                elif new_state == GameState.LOBBY:
-                    tracker.last_capture = tracker.captureScreen()
-                    tracker.recording = False
-
-                log.info(f"Changing game state to '{new_state.name}'")
-                tracker.STATE = new_state
-                
-            if tracker.recording:
-                time.sleep(CONFIG["screenCaptureDelay"])
-            else:
-                time.sleep(3)
-    else:
-        log.error("Apex Legends is not running.")
- 
-    sys.exit(0)
