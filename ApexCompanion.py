@@ -1,6 +1,8 @@
 from ApexTracker import ApexTracker, GameState, TrackerControls
+from HeatmapGenerator import HeatmapGenerator
 
 import pytesseract
+import argparse
 import keyboard
 import time
 import sys
@@ -34,9 +36,13 @@ CONFIG = {
     "keybinds": KEYBINDS,
     "dirPath": DIR_PATH,
     "dirDeathCapture": CAPTURE_PATH,
+
+    # debug settings
+    "debug": True,
+    "debug_ignore_focus": False,
 }
 
-def startApexTracker():
+def startApexTracker() -> None:
     pytesseract.pytesseract.tesseract_cmd = os.path.join(DIR_PATH, os.path.join('tesseract', 'tesseract.exe'))
     tracker = ApexTracker(CONFIG, ignore_checks=True)
 
@@ -75,5 +81,35 @@ def startApexTracker():
  
     sys.exit(0)
 
+def startHeatmapGenerator() -> None:
+    gen = HeatmapGenerator(CONFIG)
+
+    curr_map = gen.selectMap()
+
+    log.info(curr_map)
+
 if __name__ == "__main__":
-    startApexTracker()
+
+    parser = argparse.ArgumentParser(description='Select which features to run.')
+    parser.add_argument('-d','--debug', type=bool, help='Run in debug mode.', default=False)
+    parser.add_argument('-t', '--tracker', help="Run the ApexTracker", default=None)
+    parser.add_argument('-g', '--generate', help="Run the Heatmap generator", default=None)
+    args = parser.parse_args()
+
+    if args.debug:
+        CONFIG["debug"] = True
+    
+    log.basicConfig(
+        level=log.DEBUG if CONFIG["debug"] else log.INFO,
+        #filename='apex_tracker.log', # uncomment to disable console logs
+        format='[%(levelname)s] %(message)s',
+        datefmt="%Y-%m-%d %H:%M:%S",
+        )
+        
+    if args.tracker:
+        startApexTracker()
+    elif args.generate:
+        startHeatmapGenerator()
+    else: # by default start the Apex Tracker
+        #startApexTracker()
+        startHeatmapGenerator()

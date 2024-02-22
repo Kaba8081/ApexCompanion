@@ -49,7 +49,7 @@ def debugAnalyzePerformance(func: callable) -> callable:
     return inner_func
 
 class ApexTracker:
-    def __init__(self, config, log_level=log.DEBUG, ignore_checks=False) -> None:
+    def __init__(self, config, log_level=log.DEBUG) -> None:
         self.STATE = GameState.LOGIN_SCREEN
         self.CONFIG = config
         self.APEX_MAPS = self.CONFIG["maps"]
@@ -59,14 +59,8 @@ class ApexTracker:
         self.recording = True
         self.last_capture = None # last screen capture before death
 
-        self.debug_ignore_focus = ignore_checks
-
-        log.basicConfig(
-            level=log_level,
-            #filename='apex_tracker.log', # uncomment to disable console logs
-            format='[%(levelname)s] %(message)s',
-            datefmt="%Y-%m-%d %H:%M:%S",
-            )
+        if self.CONFIG["debug"]:
+            self.debug_ignore_focus = self.CONFIG["debug_ignore_focus"]
 
     def update(self, action: TrackerControls) -> None:
         match action:
@@ -206,6 +200,7 @@ class ApexTracker:
         self.recording = not self.recording
         log.info(f"Recording: {self.recording}")
 
+    @debugAnalyzePerformance
     def devFindOnScreen(
         self, 
         object: str | list, 
