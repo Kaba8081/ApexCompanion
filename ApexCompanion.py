@@ -44,7 +44,7 @@ CONFIG = {
 
 def startApexTracker() -> None:
     pytesseract.pytesseract.tesseract_cmd = os.path.join(DIR_PATH, os.path.join('tesseract', 'tesseract.exe'))
-    tracker = ApexTracker(CONFIG, ignore_checks=True)
+    tracker = ApexTracker(CONFIG)
 
     for key in tracker.CONFIG["keybinds"].keys():
         if tracker.CONFIG["keybinds"][key] == TrackerControls.RECORDING:
@@ -52,7 +52,9 @@ def startApexTracker() -> None:
         else:
             keyboard.add_hotkey(key, tracker.update, args=(tracker.CONFIG["keybinds"][key],))
 
-    if tracker.gameIsRunning() or tracker.debug_ignore_focus:
+    if tracker.gameIsRunning() or CONFIG["debug"]:
+        while True:
+            tracker.devFindOnScreen()
         while tracker.is_running:
             new_state = tracker.checkGameState()
 
@@ -91,14 +93,15 @@ def startHeatmapGenerator() -> None:
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description='Select which features to run.')
-    parser.add_argument('-d','--debug', type=bool, help='Run in debug mode.', default=False)
+    parser.add_argument('--debug', help='Run in debug mode.', action='store', nargs='*', default=False)
     parser.add_argument('-t', '--tracker', help="Run the ApexTracker", default=None)
     parser.add_argument('-g', '--generate', help="Run the Heatmap generator", default=None)
     args = parser.parse_args()
 
-    if args.debug:
+    # check if 'debug' arg was supplied or is it set to 'True'
+    if args.debug is not None or args.debug is True:
         CONFIG["debug"] = True
-    
+
     log.basicConfig(
         level=log.DEBUG if CONFIG["debug"] else log.INFO,
         #filename='apex_tracker.log', # uncomment to disable console logs
@@ -111,5 +114,4 @@ if __name__ == "__main__":
     elif args.generate:
         startHeatmapGenerator()
     else: # by default start the Apex Tracker
-        #startApexTracker()
-        startHeatmapGenerator()
+        startApexTracker()

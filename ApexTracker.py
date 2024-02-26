@@ -119,7 +119,7 @@ class ApexTracker:
         return None
 
     def captureScreen(self) -> Image.Image | None:
-        if self.windowIsFocused() and self.recording:
+        if (self.windowIsFocused() and self.recording) or self.CONFIG["debug"]:
             return ImageGrab.grab()
         return None
 
@@ -203,14 +203,24 @@ class ApexTracker:
     @debugAnalyzePerformance
     def devFindOnScreen(
         self, 
-        object: str | list, 
-        conf: float=.8, 
-        screen: Image.Image=None, 
-        method=cv2.TM_CCOEFF_NORMED
+        object: str | list = None, 
+        conf: float = .8, 
+        screen: Image.Image = None, 
+        method = cv2.TM_CCOEFF_NORMED
     ) -> bool:
 
         if not screen:
             screen = self.captureScreen()
+            if not screen:
+                log.error("Could not capture the current screen.")
+                return False
+
+        if not object:
+            path = f'{self.CONFIG["dirPath"]}\game_assets\\'
+            files = [f for f in os.listdir(path)] if os.path.exists(path) else []
+            files = [f[:-4] for f in files if f.endswith('.png')]
+            
+            object = files
 
         object = [object] if type(object) == str else object
 
@@ -228,9 +238,10 @@ class ApexTracker:
             w, h = template.shape[::-1]
             res = cv2.matchTemplate(img_gray, template, method)
             loc = np.where(res >= conf)
-            matches = f"{colorama.Fore.RED if len(loc[0]) == 0 else colorama.Fore.GREEN}{len(loc[0])}{colorama.Style.RESET_ALL}"
+            matches_str = f"{colorama.Fore.RED if len(loc[0]) == 0 else colorama.Fore.GREEN}{len(loc[0])}{colorama.Style.RESET_ALL}"
+            conf_str = f"{colorama.Fore.CYAN}{conf}{colorama.Style.RESET_ALL}"
 
-            log.debug(f"Found {matches} matches for {obj} on screen with {conf} confidence.")
+            log.debug(f"Found {matches_str} matches with {conf_str} confidence for {obj} on screen.")
 
             for pt in zip(*loc[::-1]):
                 cv2.rectangle(img_rgb, pt, (pt[0] + w, pt[1] + h), (0, 0, 255), 2)
