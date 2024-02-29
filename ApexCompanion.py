@@ -114,6 +114,7 @@ def startHeatmapGenerator() -> None:
     gen = HeatmapGenerator(CONFIG)
 
     curr_map = gen.selectMap()
+    gen.generateHeatmap(curr_map)
 
     log.info(curr_map)
 
@@ -148,5 +149,5 @@ if __name__ == "__main__":
     elif args.generate is not None:
         startHeatmapGenerator()
     else: # by default start the Apex Tracker
-        #startApexTracker()
-        devSaveDeathsFromScreenshots()
+        startApexTracker()
+        #devSaveDeathsFromScreenshots()
