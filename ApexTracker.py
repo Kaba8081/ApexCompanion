@@ -34,7 +34,7 @@ class TrackerControls(Enum):
     MOVE_RIGHT = 8
     DEBUG = 9 # Debugging purposes
 
-def debugAnalyzePerformance(func: callable) -> callable:
+def devAnalyzePerformance(func: callable) -> callable:
     def inner_func(*args, **kwargs):
         start = time.time()
         
@@ -200,7 +200,7 @@ class ApexTracker:
         self.recording = not self.recording
         log.info(f"Recording: {self.recording}")
 
-    @debugAnalyzePerformance
+    @devAnalyzePerformance
     def devFindOnScreen(
         self, 
         object: str | list = None, 
@@ -250,3 +250,30 @@ class ApexTracker:
             # if len(loc[0]) > 0:
             #     return True
             # return False
+    
+    def devGenerateDeathFromScreen(self, smap: str, screen: Image.Image) -> None:
+        # This function generates a minimap screenshot from
+        # the current screen and saved in the supplied map folder.
+
+        if smap not in self.APEX_MAPS:
+            raise ValueError(f"Map name '{smap}' is not valid.")
+        else:
+            curr_map = smap if smap != "WORLO'S EDGE" else "WORLD'S EDGE"
+            save_dir = os.path.join(self.CONFIG["dirDeathCapture"], curr_map)
+            last_file = 0
+
+            # check if the directory exists, if not create it
+            if os.path.exists(save_dir):
+                # if the current map directory exists, get the last death id
+                dir_contents = os.listdir(save_dir)
+                if dir_contents:
+                    last_file = sorted(dir_contents)[-1]
+                    last_file = int(last_file.split(".")[0]) 
+            else:
+                os.makedirs(save_dir, exist_ok=True)
+
+            log.info(f"Saving death location '{save_dir}/{last_file+1}.png'...")
+            
+            screen.crop((55, 55, 229, 229)).save(f"{save_dir}/{last_file+1}.png")
+
+        return 

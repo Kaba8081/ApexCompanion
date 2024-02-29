@@ -38,9 +38,36 @@ CONFIG = {
     "dirDeathCapture": CAPTURE_PATH,
 
     # debug settings
-    "debug": True,
+    "debug": False,
     "debug_ignore_focus": False,
 }
+
+def devSaveDeathsFromScreenshots() -> None:
+    from PIL.Image import open
+    tracker = ApexTracker(CONFIG)
+
+    screen_dir = input("Enter the directory of the screenshots: ")
+    if not os.path.exists(screen_dir):
+        log.error(f"Directory '{screen_dir}' does not exist.")
+        sys.exit(1)
+    
+    curr_map = None
+    while curr_map not in APEX_MAPS:
+        curr_map = input("Enter map name: ")
+        if curr_map not in APEX_MAPS:
+            log.error(f"Map name '{curr_map}' is not valid.")
+            sys.exit(1)
+
+    images = [fname for fname in os.listdir(screen_dir) if fname.endswith('.png')]
+    try:
+        for img in images:
+            tracker.devGenerateDeathFromScreen(curr_map, open(os.path.join(screen_dir, img)))
+    except Exception as e:
+        log.error(f"An error occured when saving death locations: {e}")
+        return
+    finally:
+        log.info("Saved all death locations.")
+        return
 
 def startApexTracker() -> None:
     pytesseract.pytesseract.tesseract_cmd = os.path.join(DIR_PATH, os.path.join('tesseract', 'tesseract.exe'))
@@ -53,8 +80,8 @@ def startApexTracker() -> None:
             keyboard.add_hotkey(key, tracker.update, args=(tracker.CONFIG["keybinds"][key],))
 
     if tracker.gameIsRunning() or CONFIG["debug"]:
-        while True:
-            tracker.devFindOnScreen()
+        # while True:
+        #     tracker.devFindOnScreen()
         while tracker.is_running:
             new_state = tracker.checkGameState()
 
@@ -93,14 +120,19 @@ def startHeatmapGenerator() -> None:
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description='Select which features to run.')
-    parser.add_argument('--debug', help='Run in debug mode.', action='store', nargs='*', default=False)
-    parser.add_argument('-t', '--tracker', help="Run the ApexTracker", default=None)
-    parser.add_argument('-g', '--generate', help="Run the Heatmap generator", default=None)
+    parser.add_argument('--debug', help='Run in debug mode.', nargs='*')
+    parser.add_argument('-t', '--tracker', help="Run the ApexTracker", nargs='*')
+    parser.add_argument('-g', '--generate', help="Run the Heatmap generator", nargs='*')
     args = parser.parse_args()
 
     # check if 'debug' arg was supplied or is it set to 'True'
     if args.debug is not None or args.debug is True:
         CONFIG["debug"] = True
+
+    # return an error if both 'tracker' and 'generate' args are supplied
+    if args.tracker is not None and args.generate is not None:
+        log.error("Please select only one feature to run.")
+        sys.exit(1)
 
     log.basicConfig(
         level=log.DEBUG if CONFIG["debug"] else log.INFO,
@@ -108,10 +140,13 @@ if __name__ == "__main__":
         format='[%(levelname)s] %(message)s',
         datefmt="%Y-%m-%d %H:%M:%S",
         )
-        
-    if args.tracker:
+    
+    log.debug(f'{args.debug} {CONFIG["debug"]}')
+
+    if args.tracker is not None:
         startApexTracker()
-    elif args.generate:
+    elif args.generate is not None:
         startHeatmapGenerator()
     else: # by default start the Apex Tracker
-        startApexTracker()
+        #startApexTracker()
+        devSaveDeathsFromScreenshots()
