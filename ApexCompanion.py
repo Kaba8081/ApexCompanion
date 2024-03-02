@@ -42,7 +42,7 @@ CONFIG = {
     "debug_ignore_focus": False,
 }
 
-def devSaveDeathsFromScreenshots() -> None:
+def devSaveDeathsFromScreenshotDir() -> None:
     from PIL.Image import open
     tracker = ApexTracker(CONFIG)
 
@@ -149,5 +149,9 @@ if __name__ == "__main__":
     elif args.generate is not None:
         startHeatmapGenerator()
     else: # by default start the Apex Tracker
-        startApexTracker()
-        #devSaveDeathsFromScreenshots()
+        #startApexTracker()
+        #devSaveDeathsFromScreenshotDir()
+
+        hg = HeatmapGenerator(CONFIG)
+        hg.devTestObjectRecognition()
+        
