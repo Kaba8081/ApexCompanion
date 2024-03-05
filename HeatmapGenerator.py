@@ -46,7 +46,7 @@ class HeatmapGenerator:
         
         # openCV's ORB solution 2.0
         # Initiate SIFT detector
-        orb = cv2.ORB_create(15, WTA_K=2, scaleFactor=2, patchSize=31)
+        orb = cv2.ORB_create(nfeatures=15, WTA_K=2, scaleFactor=2, patchSize=31)
         #sift = cv2.SIFT_create()
 
         # find the keypoints and descriptors with SIFT
@@ -130,9 +130,124 @@ class HeatmapGenerator:
 
         return result
 
+    def devTestMapDisplayMenu(self, method, ratio, **kwargs) -> None:
+        log.debug("-- Object recognition test options --")
+        log.debug(f"Current method: {method}")
+        log.debug(f"Ratio: {ratio}")
+        log.debug(f"Arguments: {kwargs}")
+        log.debug("-----")
+        
+        return
+
+    def devTestMapChangeSettings(self) -> tuple:
+        new_method = None
+        new_ratio = None
+        new_args = None
+
+        while True:
+            log.debug("-- Change settings --")
+            log.debug("1. Change method")
+            log.debug("2. Change ratio")
+            log.debug("3. Change arguments")
+            log.debug("4. Exit")
+            choice = input("Select an option: ")
+
+            try:
+                choice = int(choice)
+                if choice < 1 or choice > 4:
+                    raise ValueError
+            except ValueError:
+                log.error("Invalid option!")
+                continue
+            finally:
+                match choice:
+                    case 1: # Change method
+                        log.debug("Available methods: SIFT, ORB, AKAZE")
+                        try: 
+                            temp = input("New method:")
+                            if temp.upper() not in ['SIFT', 'ORB', 'AKAZE']:
+                                raise ValueError
+                            new_method = temp.upper()
+
+                        except ValueError:
+                            log.error("Invalid method!")
+                            continue
+                    case 2: # Change ratio
+                        temp = input("New ratio:")
+                        try:
+                            temp = float(temp)
+                            if temp < 0 or temp > 1:
+                                raise ValueError
+                            new_ratio = temp
+
+                        except ValueError:
+                            log.error("Invalid ratio!")
+                            continue    
+                    case 3:
+                        temp = input("Add custom arguments (format: key1=value1,key2=value2,...): ")
+                        try:
+                            temp = temp.split(",")
+                            temp_args = {}
+                            for argument in temp:
+                                argument = argument.split("=")
+                                
+                                # try to set the arguments value to int,
+                                # if an exception would be thrown set it as str
+                                try:
+                                    temp_args[argument[0]] = int(argument[1])
+                                except:
+                                    temp_args[argument[0]] = argument[1]
+
+                            new_args = temp_args
+                        except IndexError:
+                            log.error("Wrong format!")
+                    case 4: # Exit
+                        break
+                    
+        return new_method, new_ratio, new_args
+    
     def devTestObjectRecognition(self) -> None:
         # TODO: implement supplying custom settings for the object recognition in order to test the different techniques
-        pass
+        avail_methods = ['SIFT', 'ORB', 'AKAZE']
+        default_args = {
+            'SIFT': {'nfeatures':0, 'nOctaveLayers':3, 'contrastThreshold':.04, 'edgeThreshold':10, 'sigma':1.6},
+            'ORB': {'nfeatures':15, 'WTA_K':2, 'scaleFactor':2, 'patchSize':31},
+            'AKAZE': {}
+        }
+        
+        # default settings
+        curr_method = 'ORB'
+        curr_ratio = .75
+        curr_args = default_args[curr_method]
+        
+        while True:
+            self.devTestMapDisplayMenu(curr_method, curr_ratio, **curr_args)
+            log.debug("1. Change settings")
+            log.debug("2. Test with selected settings")
+            log.debug("3. Exit")
+            choice = input("Select an option: ")
+            
+            try:
+                choice = int(choice)
+                if choice < 1 or choice > 3:
+                    raise ValueError
+            except ValueError:
+                log.error("Invalid option!")
+                continue
+            finally:
+                match choice:
+                    case 1: # Change settings
+                        new_settings = self.devTestMapChangeSettings()
+                        curr_method = new_settings[0] if new_settings[0] else curr_method
+                        curr_ratio = new_settings[1] if new_settings[1] else curr_method
+                        curr_args = new_settings[2] if new_settings[2] else curr_method
+
+                    case 2: # Test with selected settings
+                        pass
+                    case 3: # Exit
+                        break
+    
+        return
 
     def generateHeatmap(self, smap: str, colormap: str='viridis') -> None:
         # Use opencv's ORB as an alternative to SIFT or SURF
