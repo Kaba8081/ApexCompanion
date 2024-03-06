@@ -83,8 +83,8 @@ class HeatmapGenerator:
 
     def devFindOnMap(
         self, 
-        screen_img: Image.Image, # death screen image
         map_img: Image.Image,    # selected map image
+        screen_img: Image.Image, # death screen image
         technique: str='ORB',    # object detection technique
         ratio: float=.75,            # Lowe's ratio test
         **kwargs: dict           # Arguments for the selected technique
@@ -99,26 +99,28 @@ class HeatmapGenerator:
 
         match technique.upper():
             case 'ORB':
-                detector = cv2.orb.ORB_create(args=kwargs)
+                #detector = cv2.ORB_create(**kwargs)
+                detector = cv2.ORB_create(nfeatures=15, WTA_K=2, scaleFactor=2, patchSize=31)
             case 'SIFT':
-                detector = cv2.SIFT_create(args=kwargs)
+                detector = cv2.SIFT_create(**kwargs)
             case 'KAAZE':
                 pass
         
         # Find the keypoints and descriptors
         kp1, des1 = detector.detectAndCompute(screen_img, None)
         kp2, des2 = detector.detectAndCompute(map_img, None)
+        bf = cv2.BFMatcher()
 
         match technique.upper():
             case 'ORB':
-                matches = matcher.match(des1, des2)
+                matches = bf.match(des1, des2)
 
                 for m,n in matches:
                     if m.distance < ratio *n.distance:
                         good_matches.append([m])
 
             case 'SIFT':
-                matches = matcher.knnMatch(des1, des2, k=2)
+                matches = matcher.match(des1, des2)
 
                 for m,n in matches:
                     if m.distance < ratio *n.distance:
@@ -206,8 +208,19 @@ class HeatmapGenerator:
                     
         return new_method, new_ratio, new_args
     
+    def devTestMapSelectImages(self) -> tuple:
+        map_img, screen_img = None, None
+        
+        map_img = os.path.join(self.CONFIG['dirPath'],os.path.join("maps","WORLD'S EDGE.png"))
+        map_img = cv2.imread(map_img, cv2.IMREAD_GRAYSCALE)
+        screen_img = os.path.join(self.CONFIG['dirPath'],"dev_screen.png")
+        screen_img = cv2.imread(screen_img, cv2.IMREAD_GRAYSCALE)
+
+        # TODO: implement a way to select the images from the directory
+
+        return map_img, screen_img
+
     def devTestObjectRecognition(self) -> None:
-        # TODO: implement supplying custom settings for the object recognition in order to test the different techniques
         avail_methods = ['SIFT', 'ORB', 'AKAZE']
         default_args = {
             'SIFT': {'nfeatures':0, 'nOctaveLayers':3, 'contrastThreshold':.04, 'edgeThreshold':10, 'sigma':1.6},
@@ -243,7 +256,10 @@ class HeatmapGenerator:
                         curr_args = new_settings[2] if new_settings[2] else curr_method
 
                     case 2: # Test with selected settings
-                        pass
+                        map_img, screen_img = self.devTestMapSelectImages()
+                        result_img = self.devFindOnMap(map_img, screen_img, curr_method, curr_ratio, **curr_args)
+
+                        plt.imshow(result_img), plt.show()
                     case 3: # Exit
                         break
     
