@@ -28,58 +28,19 @@ class HeatmapGenerator:
                 log.error("Invalid input. Please select a valid option!")
 
     def getCoordsFromImage(self, img: Image, smap: Image) -> list: # TODO: Find the correct initialization settings
-        # Match template solution
-        # w, h = img.shape[:-1]
-
-        # res = cv2.matchTemplate(smap, img, cv2.TM_CCOEFF_NORMED)
-        # threshold = .35
-        # loc = np.where(res >= threshold)
-        # for pt in zip(*loc[::-1]):  # Switch columns and rows
-        #     cv2.rectangle(smap, pt, (pt[0] + w, pt[1] + h), (0, 0, 255), 2)
+        matcher = cv2.DescriptorMatcher_create(cv2.DescriptorMatcher_FLANNBASED)
+        detector = cv2.SIFT_create(nfeatures=0, nOctaveLayers=3, contrastThreshold=.04, edgeThreshold=10, sigma=1.6)
         
-        # openCV's ORB solution 1.0
-        # orb = cv2.ORB_create()
-        # kp = orb.detect(img, None)
-        # kp, des = orb.compute(img, kp)
-        # # draw only keypoints location,not size and orientation
-        # img2 = cv2.drawKeypoints(img, kp, None, color=(0,255,0), flags=0)
+        kp1, des1 = detector.detectAndCompute(img, None)
+        kp2, des2 = detector.detectAndCompute(smap, None)
+
+        matches = matcher.match(des1, des2)
+        matches = sorted(matches, key = lambda x:x.distance)
+
+        img_matches = np.empty((max(img.shape[0], img.shape[0]), img.shape[1]+ smap.shape[1], 3), dtype=np.uint8)
+        result = cv2.drawMatches(img,kp1,smap,kp2,matches[:10],img_matches, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
         
-        # openCV's ORB solution 2.0
-        # Initiate SIFT detector
-        orb = cv2.ORB_create(nfeatures=15, WTA_K=2, scaleFactor=2, patchSize=31)
-        #sift = cv2.SIFT_create()
-
-        # find the keypoints and descriptors with SIFT
-        kp1, des1 = orb.detectAndCompute(img,None)
-        kp2, des2 = orb.detectAndCompute(smap,None)
-        # create BFMatcher object
-        bf = cv2.BFMatcher()#cv2.NORM_HAMMING, crossCheck=True)
-        #matcher = cv2.DescriptorMatcher_create(cv2.DescriptorMatcher_FLANNBASED)
-        # Match descriptors.
-        #matches = bf.match(des1,des2)
-        matches = bf.knnMatch(des1,des2, k=2)
-
-        # Sort them in the order of their distance.
-        #matches = sorted(matches, key = lambda x:x.distance) 
-        good = []
-        # matched_image = cv2.drawMatchesKnn(img,  
-        #    kp1, smap, kp2, matches, None, 
-        #    matchColor=(0, 255, 0), matchesMask=None, 
-        #    singlePointColor=(255, 0, 0), flags=0) 
-        
-        for m,n in matches:
-            if m.distance < 0.95*n.distance:
-                good.append(m)
-
-        # Draw first 10 matches.
-        img_matches = np.empty((max(img.shape[0], smap.shape[0]), img.shape[1]+img.shape[1], 3), dtype=np.uint8)
-        # img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
-        # smap = cv2.cvtColor(smap, cv2.COLOR_GRAY2RGB)
-        img3 = cv2.drawMatches(img,kp1,smap,kp2,good[:10],img_matches, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
-
-        plt.imshow(img3),plt.show()
-        cv2.imwrite('result.png', img3)
-        cv2.imwrite('template.png', img)
+        plt.imshow(result),plt.show()
 
     def devFindOnMap(
         self, 
@@ -92,10 +53,14 @@ class HeatmapGenerator:
         # This function returns an image with the object detection results
 
         detector = None
-        matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+        matcher = None
         matches = None
-        good_matches = []
         result = None
+
+        # maybe usefull matchers:
+        #matcher = cv2.BFMatcher()
+        #matcher = cv2.BFMatcher(cv2.NORM_L1, crossCheck=True)
+        matcher = cv2.DescriptorMatcher_create(cv2.DescriptorMatcher_FLANNBASED)
 
         match technique.upper():
             case 'ORB':
@@ -109,26 +74,32 @@ class HeatmapGenerator:
         # Find the keypoints and descriptors
         kp1, des1 = detector.detectAndCompute(screen_img, None)
         kp2, des2 = detector.detectAndCompute(map_img, None)
-        bf = cv2.BFMatcher()
 
         match technique.upper():
             case 'ORB':
-                matches = bf.match(des1, des2)
+                matches = matcher.knnMatch(des1, des2, k=2)
 
+                good_matches = []
+                # Lowe's ratio test
                 for m,n in matches:
                     if m.distance < ratio *n.distance:
                         good_matches.append([m])
 
+                # Draw matches
+                result = cv2.drawMatchesKnn(screen_img,  
+                            kp1, map_img, kp2, good_matches, None, 
+                            matchColor=(0, 255, 0), matchesMask=None, 
+                            singlePointColor=(255, 0, 0), flags=0) 
+
             case 'SIFT':
                 matches = matcher.match(des1, des2)
 
-                for m,n in matches:
-                    if m.distance < ratio *n.distance:
-                        good_matches.append(m)
+                # sort by distance
+                matches = sorted(matches, key = lambda x:x.distance)
 
-        img_matches = np.empty((max(screen_img.shape[0], map_img.shape[0]), screen_img.shape[1]+ map_img.shape[1], 3), dtype=np.uint8)
-        # draw only 10 best matches
-        result = cv2.drawMatches(screen_img,kp1,map_img,kp2,good_matches[:10],img_matches, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+                # draw only 10 best matches
+                img_matches = np.empty((max(screen_img.shape[0], map_img.shape[0]), screen_img.shape[1]+ map_img.shape[1], 3), dtype=np.uint8)
+                result = cv2.drawMatches(screen_img,kp1,map_img,kp2,matches[:10],img_matches, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
 
         return result
 
@@ -229,7 +200,7 @@ class HeatmapGenerator:
         }
         
         # default settings
-        curr_method = 'ORB'
+        curr_method = 'SIFT'
         curr_ratio = .75
         curr_args = default_args[curr_method]
         
@@ -252,8 +223,13 @@ class HeatmapGenerator:
                     case 1: # Change settings
                         new_settings = self.devTestMapChangeSettings()
                         curr_method = new_settings[0] if new_settings[0] else curr_method
-                        curr_ratio = new_settings[1] if new_settings[1] else curr_method
-                        curr_args = new_settings[2] if new_settings[2] else curr_method
+                        curr_ratio = new_settings[1] if new_settings[1] else curr_ratio
+                        
+                        # change arguments if the method or settings were changed
+                        if new_settings[0]:
+                            curr_args = default_args[new_settings[0]]
+                        if new_settings[2]:
+                            curr_args = new_settings[2]
 
                     case 2: # Test with selected settings
                         map_img, screen_img = self.devTestMapSelectImages()
