@@ -27,20 +27,54 @@ class HeatmapGenerator:
             except ValueError:
                 log.error("Invalid input. Please select a valid option!")
 
-    def getCoordsFromImage(self, img: Image, smap: Image) -> list: # TODO: Find the correct initialization settings
+    def getCoordsFromImage(self, img: Image.Image, smap: Image.Image, ratio:float=.75) -> tuple:
         matcher = cv2.DescriptorMatcher_create(cv2.DescriptorMatcher_FLANNBASED)
         detector = cv2.SIFT_create(nfeatures=0, nOctaveLayers=3, contrastThreshold=.04, edgeThreshold=10, sigma=1.6)
         
         kp1, des1 = detector.detectAndCompute(img, None)
         kp2, des2 = detector.detectAndCompute(smap, None)
 
-        matches = matcher.match(des1, des2)
-        matches = sorted(matches, key = lambda x:x.distance)
+        matches = matcher.knnMatch(des1, des2, k=2)
 
-        img_matches = np.empty((max(img.shape[0], img.shape[0]), img.shape[1]+ smap.shape[1], 3), dtype=np.uint8)
-        result = cv2.drawMatches(img,kp1,smap,kp2,matches[:10],img_matches, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+        good_matches_knn = []
+        good_matches = []
         
-        plt.imshow(result),plt.show()
+        # Filter matches using the Lowe's ratio test
+        for m,n in matches:
+            if m.distance < ratio * n.distance:
+                good_matches_knn.append([m])
+                good_matches.append(m)
+
+        result = cv2.drawMatchesKnn(img, kp1, smap, kp2, good_matches_knn, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+
+        if len(good_matches) < 10:
+            raise ValueError("Not enough good matches found.")
+        
+        src_pts = np.float32([ kp1[m.queryIdx].pt for m in good_matches ]).reshape(-1,1,2)
+        dst_pts = np.float32([ kp2[m.trainIdx].pt for m in good_matches ]).reshape(-1,1,2)
+        M, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC,5.0)
+        matchesMask = mask.ravel().tolist()
+        h,w = img.shape
+        pts = np.float32([ [0,0],[0,h-1],[w-1,h-1],[w-1,0] ]).reshape(-1,1,2)
+        dst = cv2.perspectiveTransform(pts,M)
+        center = np.mean(dst, axis=0)[0]
+        center = tuple(map(int, center))
+
+        # draw matches
+        if self.CONFIG['debug']:
+            # draw outline and the center of the object
+            result = cv2.polylines(smap,[np.int32(dst)],True,255,3, cv2.LINE_AA)
+            result = cv2.circle(smap, center, 3, (166, 0, 255), -1)
+
+            draw_params = dict(matchColor = (0,255,0), # draw matches in green color
+                            singlePointColor = None,
+                            matchesMask = matchesMask, # draw only inliers
+                            flags = 2)
+            result = cv2.drawMatches(img,kp1,smap,kp2,good_matches,None,**draw_params)
+            
+            plt.imshow(result, 'gray'),plt.show()
+        
+        return center
 
     def devFindOnMap(
         self, 
@@ -257,15 +291,25 @@ class HeatmapGenerator:
         
         map_img = cv2.imread(map_dir,cv2.IMREAD_GRAYSCALE)
         screenshots = [img for img in os.listdir(scrn_dir) if img.endswith('.png')]
-        
+        death_data = []
+
         log.info(f"Generating heatmap data from './captures/{curr_map}/' ...")
-        for img in screenshots:
-            img_path = os.path.join(scrn_dir, img)
+        for img_name in screenshots:
+            img_path = os.path.join(scrn_dir, img_name)
             img = cv2.imread(img_path,cv2.IMREAD_GRAYSCALE)
-            coords = self.getCoordsFromImage(img, map_img)
+            coords = None
 
-            # TODO: Generate heatmap data from the coordinates
+            try:
+                coords = self.getCoordsFromImage(img, map_img)
+            except ValueError as e:
+                log.warning(f"Error for {img_name}: {e}")
+            except Exception as e:
+                log.error(f"An error occured for {img_name}: {e}")
+                return
+            finally:
+                 if coords:
+                    death_data.append(coords)
 
-        log.info(f"Done.")
+        log.info(f"Done. Heatmap generated in './heatmap_{curr_map}.png'")
         return
         
