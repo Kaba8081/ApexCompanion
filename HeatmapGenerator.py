@@ -76,6 +76,83 @@ class HeatmapGenerator:
         
         return center
 
+    def GenerateHeatmap(self,
+                        data:list, 
+                        map_name: str, 
+                        map_img: Image.Image, 
+                        colormap: str = "viridis",
+                        resolution: int = 100
+                        ) -> None:
+        BASE_RESOLUTION = 1015 # resolution of the map image
+        scale = resolution / BASE_RESOLUTION
+
+        heatmap_data = np.asarray([[0] * resolution] * resolution)
+        for coord in data:
+            x, y = coord
+            heatmap_data[int(y*scale)][int(x*scale)] += 100
+
+        total = np.sum(heatmap_data)
+        heatmap_data = heatmap_data / total
+
+        plt.clf()
+        plt.xticks([])
+        plt.yticks([])
+        plt.imshow(heatmap_data, interpolation="lanczos", zorder=1, cmap=colormap, alpha=.5, extent=(0, BASE_RESOLUTION, 0, BASE_RESOLUTION))    
+        plt.imshow(np.flipud(map_img), zorder=0, cmap="gray",origin='lower')
+
+        plt.savefig(
+            f'{self.CONFIG["dirPath"]}/heatmap_{map_name}.png',
+            dpi=300,
+            pad_inches=0,
+            transparent=True,
+            bbox_inches='tight'
+        )
+
+        return
+    
+    def generate(self, smap: str, colormap: str='viridis') -> None:
+        # Use opencv's ORB as an alternative to SIFT or SURF
+        if not smap in self.CONFIG["maps"]:
+            raise ValueError(f"Map name '{smap}' is not valid.")
+
+        curr_map = smap if smap != "WORLO'S EDGE" else "WORLD'S EDGE"
+        map_dir = os.path.join(self.CONFIG["dirPath"],os.path.join("maps", curr_map+".png"))
+        scrn_dir = os.path.join(self.CONFIG["dirPath"], os.path.join("captures", curr_map))
+
+        if not os.path.exists(map_dir):
+            raise FileNotFoundError(f"Map image at: './maps/{curr_map}' does not exist.")
+        if not os.path.exists(scrn_dir):
+            raise FileNotFoundError(f"Directory './captures/{curr_map}' does not exist.")    
+        
+        map_img = cv2.imread(map_dir,cv2.IMREAD_GRAYSCALE)
+        screenshots = [img for img in os.listdir(scrn_dir) if img.endswith('.png')]
+        death_data = []
+
+        log.info(f"Generating heatmap data from './captures/{curr_map}/' ...")
+        for img_name in screenshots:
+            img_path = os.path.join(scrn_dir, img_name)
+            img = cv2.imread(img_path,cv2.IMREAD_GRAYSCALE)
+            coords = None
+
+            try:
+                coords = self.getCoordsFromImage(img, map_img)
+            except ValueError as e:
+                log.warning(f"Error for {img_name}: {e}")
+            except Exception as e:
+                log.error(f"An error occured for {img_name}: {e}")
+                return
+            finally:
+                 if coords:
+                    death_data.append(coords)
+        if not len(death_data) > 0:
+            log.error("No valid death data found.")
+            return
+        
+        self.GenerateHeatmap(death_data, curr_map, map_img, colormap, 20)
+
+        log.info(f"Done. Heatmap generated in './heatmap_{curr_map}.png'")
+        return
+
     def devFindOnMap(
         self, 
         map_img: Image.Image,    # selected map image
@@ -274,42 +351,4 @@ class HeatmapGenerator:
                         break
     
         return
-
-    def generateHeatmap(self, smap: str, colormap: str='viridis') -> None:
-        # Use opencv's ORB as an alternative to SIFT or SURF
-        if not smap in self.CONFIG["maps"]:
-            raise ValueError(f"Map name '{smap}' is not valid.")
-
-        curr_map = smap if smap != "WORLO'S EDGE" else "WORLD'S EDGE"
-        map_dir = os.path.join(self.CONFIG["dirPath"],os.path.join("maps", curr_map+".png"))
-        scrn_dir = os.path.join(self.CONFIG["dirPath"], os.path.join("captures", curr_map))
-
-        if not os.path.exists(map_dir):
-            raise FileNotFoundError(f"Map image at: './maps/{curr_map}' does not exist.")
-        if not os.path.exists(scrn_dir):
-            raise FileNotFoundError(f"Directory './captures/{curr_map}' does not exist.")    
-        
-        map_img = cv2.imread(map_dir,cv2.IMREAD_GRAYSCALE)
-        screenshots = [img for img in os.listdir(scrn_dir) if img.endswith('.png')]
-        death_data = []
-
-        log.info(f"Generating heatmap data from './captures/{curr_map}/' ...")
-        for img_name in screenshots:
-            img_path = os.path.join(scrn_dir, img_name)
-            img = cv2.imread(img_path,cv2.IMREAD_GRAYSCALE)
-            coords = None
-
-            try:
-                coords = self.getCoordsFromImage(img, map_img)
-            except ValueError as e:
-                log.warning(f"Error for {img_name}: {e}")
-            except Exception as e:
-                log.error(f"An error occured for {img_name}: {e}")
-                return
-            finally:
-                 if coords:
-                    death_data.append(coords)
-
-        log.info(f"Done. Heatmap generated in './heatmap_{curr_map}.png'")
-        return
-        
+       

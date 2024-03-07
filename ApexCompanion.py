@@ -108,15 +108,15 @@ def startApexTracker() -> None:
     else:
         log.error("Apex Legends is not running.")
  
-    sys.exit(0)
+    return
 
 def startHeatmapGenerator() -> None:
     gen = HeatmapGenerator(CONFIG)
 
     curr_map = gen.selectMap()
-    gen.generateHeatmap(curr_map)
+    gen.generate(curr_map)
 
-    log.info(curr_map)
+    return
 
 if __name__ == "__main__":
 
@@ -149,9 +149,6 @@ if __name__ == "__main__":
     elif args.generate is not None:
         startHeatmapGenerator()
     else: # by default start the Apex Tracker
-        #startApexTracker()
-        #devSaveDeathsFromScreenshotDir()
-
-        hg = HeatmapGenerator(CONFIG)
-        hg.devTestObjectRecognition()
-        
+        startApexTracker()  
+    
+    sys.exit(0)
