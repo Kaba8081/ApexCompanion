@@ -4,6 +4,7 @@ import colorama
 from matplotlib import pyplot as plt
 from PIL import Image
 import numpy as np
+import errno
 import cv2
 import os
 
@@ -48,6 +49,8 @@ class HeatmapGenerator:
         result = cv2.drawMatchesKnn(img, kp1, smap, kp2, good_matches_knn, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
 
         if len(good_matches) < 10:
+            if self.CONFIG['debug']:
+                plt.imshow(result, 'gray'),plt.show()
             raise ValueError("Not enough good matches found.")
         
         src_pts = np.float32([ kp1[m.queryIdx].pt for m in good_matches ]).reshape(-1,1,2)
@@ -214,31 +217,37 @@ class HeatmapGenerator:
 
         return result
 
-    def devTestMapDisplayMenu(self, method, ratio, **kwargs) -> None:
+    def devTestMapDisplayMenu(self, curr_conf: dict) -> None:
         log.debug("-- Object recognition test options --")
-        log.debug(f"Current method: {method}")
-        log.debug(f"Ratio: {ratio}")
-        log.debug(f"Arguments: {kwargs}")
+        for key in curr_conf.keys():
+            log.debug(f"{colorama.Fore.GREEN}{key}{colorama.Style.RESET_ALL}: {curr_conf[key]}")
         log.debug("-----")
         
         return
 
-    def devTestMapChangeSettings(self) -> tuple:
-        new_method = None
-        new_ratio = None
-        new_args = None
+    def devTestMapChangeSettings(self, 
+                                 curr_conf: dict, 
+                                 default_args: dict, 
+                                 avail_methods: list=["SIFT", "ORB", "AKAZE"]
+                                 ) -> tuple:
+        new_conf = {
+            'method': curr_conf['method'],
+            'ratio': curr_conf['ratio'],
+            'args': curr_conf['args'],
+            'map': curr_conf['map'],
+            'file': curr_conf['file']
+        }
 
         while True:
             log.debug("-- Change settings --")
-            log.debug("1. Change method")
-            log.debug("2. Change ratio")
-            log.debug("3. Change arguments")
-            log.debug("4. Exit")
+            for i, key in enumerate(new_conf.keys()):
+                log.debug(f"{i+1}. Change {key}")
+            log.debug("6. Exit")
             choice = input("Select an option: ")
 
             try:
                 choice = int(choice)
-                if choice < 1 or choice > 4:
+                if choice < 1 or choice > 6:
                     raise ValueError
             except ValueError:
                 log.error("Invalid option!")
@@ -246,12 +255,12 @@ class HeatmapGenerator:
             finally:
                 match choice:
                     case 1: # Change method
-                        log.debug("Available methods: SIFT, ORB, AKAZE")
+                        log.debug(f"Available methods: {', '.join(avail_methods)}")
                         try: 
                             temp = input("New method:")
-                            if temp.upper() not in ['SIFT', 'ORB', 'AKAZE']:
+                            if temp.upper() not in avail_methods:
                                 raise ValueError
-                            new_method = temp.upper()
+                            new_conf["method"] = temp.upper()
 
                         except ValueError:
                             log.error("Invalid method!")
@@ -262,12 +271,12 @@ class HeatmapGenerator:
                             temp = float(temp)
                             if temp < 0 or temp > 1:
                                 raise ValueError
-                            new_ratio = temp
+                            new_conf["ratio"] = temp
 
                         except ValueError:
                             log.error("Invalid ratio!")
                             continue    
-                    case 3:
+                    case 3: # Change arguments
                         temp = input("Add custom arguments (format: key1=value1,key2=value2,...): ")
                         try:
                             temp = temp.split(",")
@@ -282,13 +291,37 @@ class HeatmapGenerator:
                                 except:
                                     temp_args[argument[0]] = argument[1]
 
-                            new_args = temp_args
+                            new_conf["args"] = temp_args
                         except IndexError:
                             log.error("Wrong format!")
-                    case 4: # Exit
+                    case 4: # Change map
+                        log.debug("-- Maps --")
+                        log.debug(", ".join(self.CONFIG['maps']))
+                        temp = input("New map:")
+                        try:
+                            if temp.upper() not in self.CONFIG['maps']:
+                                raise ValueError
+                            new_conf["map"] = temp.upper()
+                        except ValueError:
+                            log.error("Invalid map!")
+                            continue
+                    case 5: # Change path to file
+                        temp = input("New path to file (relative to map's folder):")
+                        new_path = os.path.join(self.CONFIG["dirPath"], 'captures')
+                        new_path = os.path.join(new_path, curr_conf["map"])
+                        new_path = os.path.join(new_path, temp)
+
+                        try:
+                            if not os.path.exists(temp):
+                                raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), new_path)
+                            curr_conf['file'] = new_path
+                        except Exception as e:
+                            log.error(f"An exception occured while locating file: \n{e}")
+                            continue
+                    case 6: # Exit
                         break
                     
-        return new_method, new_ratio, new_args
+        return new_conf
     
     def devTestMapSelectImages(self) -> tuple:
         map_img, screen_img = None, None
@@ -311,12 +344,16 @@ class HeatmapGenerator:
         }
         
         # default settings
-        curr_method = 'SIFT'
-        curr_ratio = .75
-        curr_args = default_args[curr_method]
+        curr_conf = {
+            'method': 'SIFT',
+            'ratio': .75,
+            'args': default_args['SIFT'],
+            'map': "WORLD'S EDGE",
+            'file': "dev_screen.png"
+        }
         
         while True:
-            self.devTestMapDisplayMenu(curr_method, curr_ratio, **curr_args)
+            self.devTestMapDisplayMenu(curr_conf)
             log.debug("1. Change settings")
             log.debug("2. Test with selected settings")
             log.debug("3. Exit")
@@ -332,19 +369,11 @@ class HeatmapGenerator:
             finally:
                 match choice:
                     case 1: # Change settings
-                        new_settings = self.devTestMapChangeSettings()
-                        curr_method = new_settings[0] if new_settings[0] else curr_method
-                        curr_ratio = new_settings[1] if new_settings[1] else curr_ratio
-                        
-                        # change arguments if the method or settings were changed
-                        if new_settings[0]:
-                            curr_args = default_args[new_settings[0]]
-                        if new_settings[2]:
-                            curr_args = new_settings[2]
+                        curr_conf = self.devTestMapChangeSettings(curr_conf, avail_methods, default_args)
 
                     case 2: # Test with selected settings
                         map_img, screen_img = self.devTestMapSelectImages()
-                        result_img = self.devFindOnMap(map_img, screen_img, curr_method, curr_ratio, **curr_args)
+                        result_img = self.devFindOnMap(map_img, screen_img, curr_conf["method"], curr_conf["ratio"], **curr_conf["args"])
 
                         plt.imshow(result_img), plt.show()
                     case 3: # Exit
