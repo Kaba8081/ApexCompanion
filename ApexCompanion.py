@@ -4,6 +4,7 @@ from HeatmapGenerator import HeatmapGenerator
 import pytesseract
 import argparse
 import keyboard
+import colorama
 import time
 import sys
 import os
@@ -96,9 +97,12 @@ def startApexTracker() -> None:
                         tracker.last_capture = None
 
                 elif new_state == GameState.IN_QUEUE:
-                    tracker.updateMap(tracker.last_capture.crop((54, 859, 326, 896)))
+                    # GameState.LOBBY could be skipped if the user instantly queues up
+                    # so then the map probably stays the same
+                    if tracker.last_capture:
+                        tracker.updateMap(tracker.last_capture.crop((50, 859, 326, 896)))
 
-                log.info(f"Changing game state to '{new_state.name}'")
+                log.info(f"Changing game state to {colorama.Fore.GREEN}{new_state.name}{colorama.Style.RESET_ALL}")
                 tracker.STATE = new_state
             
             if tracker.STATE == GameState.LOBBY:

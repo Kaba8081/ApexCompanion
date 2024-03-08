@@ -7,6 +7,7 @@ import numpy as np
 import time
 import sys
 import os
+import re
 
 from psutil import process_iter
 from enum import Enum
@@ -150,6 +151,14 @@ class ApexTracker:
         return False
     
     def saveDeathLocation(self, lastCapture: Image.Image) -> None:
+        # Save the last screen capture before death
+
+        # functions to "human sort" the files list
+        def atoi(text):
+            return int(text) if text.isdigit() else text
+        def natural_keys(text):
+            return [ atoi(c) for c in re.split(r'(\d+)', text) ]
+
         if self.CONFIG["trackDeaths"]:
             curr_map = self.current_map if self.current_map != "WORLO'S EDGE" else "WORLD'S EDGE"
             save_dir = os.path.join(self.CONFIG["dirDeathCapture"], curr_map)
@@ -159,8 +168,9 @@ class ApexTracker:
             if os.path.exists(save_dir):
                 # if the current map directory exists, get the last death id
                 dir_contents = os.listdir(save_dir)
+                dir_contents.sort(key=natural_keys)
                 if dir_contents:
-                    last_file = sorted(dir_contents)[-1]
+                    last_file = dir_contents[-1]
                     last_file = int(last_file.split(".")[0]) 
             else:
                 os.makedirs(save_dir, exist_ok=True)
@@ -190,7 +200,7 @@ class ApexTracker:
         return process_name in [p.name() for p in process_iter()]
     
     def windowIsFocused(self, window_name: str='Apex Legends') -> bool | None:
-        if self.debug_ignore_focus:
+        if self.CONFIG['debug_ignore_focus']:
             return True
         elif self.gameIsRunning():
             return gw.getWindowsWithTitle(window_name)[0].isActive
@@ -198,7 +208,7 @@ class ApexTracker:
 
     def pauseRecording(self) -> None:
         self.recording = not self.recording
-        log.info(f"Recording: {self.recording}")
+        log.info(f"Recording: {colorama.Fore.GREEN if self.recording else colorama.Fore.RED}{self.recording}{colorama.Style.RESET_ALL}")
 
     @devAnalyzePerformance
     def devFindOnScreen(
