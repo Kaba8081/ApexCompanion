@@ -112,10 +112,28 @@ def startApexTracker() -> None:
 
 def startHeatmapGenerator() -> None:
     gen = HeatmapGenerator(CONFIG)
-
-    curr_map = gen.selectMap()
-    gen.generate(curr_map)
-
+    
+    if CONFIG["debug"]:
+        log.info("Debug flag detected! Select option to continue:")
+        log.info("1. Generate heatmap")
+        log.info("2. Dev test object recognition")
+        choice = input("Enter choice: ")
+        
+        try:
+            choice = int(choice)
+            
+            match choice:
+                case 1:
+                    curr_map = gen.selectMap()
+                    gen.generate(curr_map)
+                case 2:
+                    gen.devTestObjectRecognition()
+        except ValueError:
+            log.error("Invalid input. Exiting...")
+            sys.exit(1)
+    else:
+        curr_map = gen.selectMap()
+        gen.generate(curr_map)
     return
 
 if __name__ == "__main__":
