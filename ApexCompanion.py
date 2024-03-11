@@ -88,6 +88,7 @@ def startApexTracker() -> None:
 
             if tracker.STATE != new_state and new_state is not None:
                 if new_state in [GameState.IN_DROPSHIP, GameState.ALIVE]:
+                    tracker.recording_delay = CONFIG["screenCaptureDelay"]
                     tracker.last_capture = None
                     tracker.recording = True
 
@@ -106,9 +107,10 @@ def startApexTracker() -> None:
                 tracker.STATE = new_state
             
             if tracker.STATE == GameState.LOBBY:
+                tracker.recording_delay = .05 # lower delay for lobby
                 tracker.last_capture = tracker.captureScreen()
                 
-            time.sleep(CONFIG["screenCaptureDelay"])
+            time.sleep(tracker.recording_delay)
     else:
         log.error("Apex Legends is not running.")
  
@@ -122,7 +124,7 @@ def startHeatmapGenerator() -> None:
         log.info("1. Generate heatmap")
         log.info("2. Dev test object recognition")
         choice = input("Enter choice: ")
-        
+
         try:
             choice = int(choice)
             
@@ -137,7 +139,11 @@ def startHeatmapGenerator() -> None:
             sys.exit(1)
     else:
         curr_map = gen.selectMap()
-        gen.generate(curr_map)
+        try:
+            gen.generate(curr_map)
+        except FileNotFoundError as e:
+            log.error(f"An error occured: {colorama.Fore.RED}{e}{colorama.style.RESET_ALL}")
+
     return
 
 if __name__ == "__main__":
