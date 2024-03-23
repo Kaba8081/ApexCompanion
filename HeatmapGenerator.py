@@ -2,6 +2,7 @@ import logging as log
 import colorama
 
 from matplotlib import pyplot as plt
+from typing import Union
 from PIL import Image
 import numpy as np
 import errno
@@ -12,13 +13,16 @@ class HeatmapGenerator:
     def __init__(self, config) -> None:
         self.CONFIG = config
 
-    def selectMap(self) -> str:
+    def selectMap(self) -> Union[str, list]:
         while True:
             try:
                 map_list = ",\n".join([f"{i+1}. {map_name}" for i, map_name in enumerate(self.CONFIG['maps'])])
                 log.info(f"Maps:\n{map_list}")
                 selected_map = input("Select a map to generate a heatmap for (leave empty for all maps): ")
-
+                
+                if len(selected_map) == 0:
+                    return self.CONFIG['maps']
+                
                 selected_map = int(selected_map)
                 if not selected_map or selected_map < 1 or selected_map > len(map_list):
                     raise ValueError
@@ -113,8 +117,18 @@ class HeatmapGenerator:
 
         return
     
-    def generate(self, smap: str, colormap: str='viridis') -> None:
+    def generate(self, smap: Union[str, list], colormap: str='viridis') -> None:
         # Use opencv's ORB as an alternative to SIFT or SURF
+        
+        # If the input is a list, generate heatmaps for all maps in the list
+        if type(smap) is list:
+            for map_name in smap:
+                try:
+                    self.generate(map_name, colormap)
+                except FileNotFoundError as e:
+                    log.error(f"An error occured: {colorama.Fore.RED}{e}{colorama.style.RESET_ALL}")
+            return
+
         if not smap in self.CONFIG["maps"]:
             raise ValueError(f"Map name '{smap}' is not valid.")
 

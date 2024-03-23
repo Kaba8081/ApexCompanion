@@ -58,6 +58,7 @@ class ApexTracker:
         self.is_running = True
         self.current_map = "LOBBY"
         self.recording = True
+        self.recording_delay = self.CONFIG["screenCaptureDelay"]
         self.last_capture = None # last screen capture before death
 
         if self.CONFIG["debug"]:
