@@ -42,6 +42,44 @@ CONFIG = {
     "debug": False,
     "debug_ignore_focus": False,
 }
+ARGUMENTS = [
+    {
+        "options": ["-d","--debug"],
+        "kwargs": {
+            "help": "Run in debug mode.",
+            "action": "store_true"
+        }
+    },
+    {
+        "options": ["-t","--tracker"],
+        "kwargs": {
+            "help": "Run the ApexTracker",
+            "action": "store_true"
+        }
+    },
+    {
+        "options": ["-g","--generate"],
+        "kwargs": {
+            "help": "Run the Heatmap generator",
+            "action": "store_true"
+        }
+    }
+]
+def argumentHelpFormater(prog) -> str:
+    """Custom help formatter for argparse."""
+    return argparse.HelpFormatter(prog, max_help_position=46, width=100)
+
+def parseArguments() -> argparse.Namespace:
+    """Parse the command line arguments and return the namespace object."""
+
+    parser = argparse.ArgumentParser(
+        formatter_class=argumentHelpFormater,
+        description='Select which features to run.')
+    
+    for arg in ARGUMENTS:
+        parser.add_argument(*arg["options"], **arg["kwargs"])
+
+    return parser.parse_args()
 
 def devSaveDeathsFromScreenshotDir() -> None:
     from PIL.Image import open
@@ -147,19 +185,14 @@ def startHeatmapGenerator() -> None:
     return
 
 if __name__ == "__main__":
-
-    parser = argparse.ArgumentParser(description='Select which features to run.')
-    parser.add_argument('--debug', help='Run in debug mode.', nargs='*')
-    parser.add_argument('-t', '--tracker', help="Run the ApexTracker", nargs='*')
-    parser.add_argument('-g', '--generate', help="Run the Heatmap generator", nargs='*')
-    args = parser.parse_args()
+    args = parseArguments()
 
     # check if 'debug' arg was supplied or is it set to 'True'
-    if args.debug is not None or args.debug is True:
+    if args.debug:
         CONFIG["debug"] = True
 
     # return an error if both 'tracker' and 'generate' args are supplied
-    if args.tracker is not None and args.generate is not None:
+    if args.tracker and args.generate:
         log.error("Please select only one feature to run.")
         sys.exit(1)
 
@@ -172,9 +205,9 @@ if __name__ == "__main__":
     
     log.debug(f'{args.debug} {CONFIG["debug"]}')
 
-    if args.tracker is not None:
+    if args.tracker:
         startApexTracker()
-    elif args.generate is not None:
+    elif args.generate:
         startHeatmapGenerator()
     else: # by default start the Apex Tracker
         startApexTracker()  
