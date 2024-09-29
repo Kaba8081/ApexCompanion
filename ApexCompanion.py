@@ -1,15 +1,16 @@
-from ApexTracker import ApexTracker, GameState, TrackerControls
-from HeatmapGenerator import HeatmapGenerator
+import logging as log
 
-import pytesseract
 import argparse
-import keyboard
-import colorama
 import time
 import sys
 import os
 
-import logging as log
+import keyboard
+import colorama
+import pytesseract
+
+from ApexTracker import ApexTracker, GameState, TrackerControls
+from HeatmapGenerator import HeatmapGenerator
 
 DIR_PATH = os.path.dirname(os.path.realpath(__file__))
 CAPTURE_PATH = os.path.join(DIR_PATH, "captures")
@@ -29,7 +30,6 @@ KEYBINDS = {
 CONFIG = {
     # Companion features
     "trackDeaths": True,
-    "autoQueue": False, # To be implemeneted
 
     # configuration
     "maps": APEX_MAPS,
@@ -37,6 +37,8 @@ CONFIG = {
     "keybinds": KEYBINDS,
     "dirPath": DIR_PATH,
     "dirDeathCapture": CAPTURE_PATH,
+    "videoAnalisys": False,
+    "videoPath": None,
 
     # debug settings
     "debug": False,
@@ -82,31 +84,29 @@ def parseArguments() -> argparse.Namespace:
     return parser.parse_args()
 
 def devSaveDeathsFromScreenshotDir() -> None:
-    from PIL.Image import open
+    from PIL import Image
     tracker = ApexTracker(CONFIG)
 
     screen_dir = input("Enter the directory of the screenshots: ")
     if not os.path.exists(screen_dir):
-        log.error(f"Directory '{screen_dir}' does not exist.")
+        log.error("Directory '%s' does not exist.", screen_dir)
         sys.exit(1)
-    
+
     curr_map = None
     while curr_map not in APEX_MAPS:
         curr_map = input("Enter map name: ")
         if curr_map not in APEX_MAPS:
-            log.error(f"Map name '{curr_map}' is not valid.")
+            log.error("Map name '%s' is not valid.", curr_map)
             sys.exit(1)
 
     images = [fname for fname in os.listdir(screen_dir) if fname.endswith('.png')]
     try:
         for img in images:
-            tracker.devGenerateDeathFromScreen(curr_map, open(os.path.join(screen_dir, img)))
+            tracker.devGenerateDeathFromScreen(curr_map, Image.open(os.path.join(screen_dir, img)))
     except Exception as e:
-        log.error(f"An error occured when saving death locations: {e}")
-        return
+        log.error("An error occured when saving death locations: %s", exc_info=e)
     finally:
         log.info("Saved all death locations.")
-        return
 
 def startApexTracker() -> None:
     pytesseract.pytesseract.tesseract_cmd = os.path.join(DIR_PATH, os.path.join('tesseract', 'tesseract.exe'))
@@ -141,22 +141,22 @@ def startApexTracker() -> None:
                     if tracker.last_capture:
                         tracker.updateMap(tracker.last_capture.crop((50, 859, 326, 896)))
 
-                log.info(f"Changing game state to {colorama.Fore.GREEN}{new_state.name}{colorama.Style.RESET_ALL}")
+                log.info("Changing game state to %s%s%s", colorama.Fore.GREEN, new_state.name, colorama.Style.RESET_ALL)
                 tracker.STATE = new_state
-            
+
             if tracker.STATE == GameState.LOBBY:
                 tracker.recording_delay = .05 # lower delay for lobby
                 tracker.last_capture = tracker.captureScreen()
-                
+
             time.sleep(tracker.recording_delay)
     else:
         log.error("Apex Legends is not running.")
- 
+
     return
 
 def startHeatmapGenerator() -> None:
     gen = HeatmapGenerator(CONFIG)
-    
+
     if CONFIG["debug"]:
         log.info("Debug flag detected! Select option to continue:")
         log.info("1. Generate heatmap")
@@ -165,7 +165,7 @@ def startHeatmapGenerator() -> None:
 
         try:
             choice = int(choice)
-            
+
             match choice:
                 case 1:
                     curr_map = gen.selectMap()
@@ -180,19 +180,25 @@ def startHeatmapGenerator() -> None:
         try:
             gen.generate(curr_map)
         except FileNotFoundError as e:
-            log.error(f"An error occured: {colorama.Fore.RED}{e}{colorama.style.RESET_ALL}")
+            log.error("An error occured: %s%s%s", colorama.Fore.RED, e, colorama.Style.RESET_ALL)
 
     return
 
 if __name__ == "__main__":
-    args = parseArguments()
+
+    parser = argparse.ArgumentParser(description='Select which features to run.')
+    parser.add_argument('--debug', help='Run in debug mode.', nargs='*')
+    parser.add_argument('-t', '--tracker', help="Run the ApexTracker", nargs='*')
+    parser.add_argument('-g', '--generate', help="Run the Heatmap generator", nargs='*')
+    parser.add_argument('-s', '--source', help="Analyze provided video file", nargs='*')
+    args = parser.parse_args()
 
     # check if 'debug' arg was supplied or is it set to 'True'
     if args.debug:
         CONFIG["debug"] = True
 
     # return an error if both 'tracker' and 'generate' args are supplied
-    if args.tracker and args.generate:
+    if sum(arg is not None for arg in [args.tracker, args.generate, args.source]) > 1:
         log.error("Please select only one feature to run.")
         sys.exit(1)
 
@@ -202,14 +208,16 @@ if __name__ == "__main__":
         format='[%(levelname)s] %(message)s',
         datefmt="%Y-%m-%d %H:%M:%S",
         )
-    
-    log.debug(f'{args.debug} {CONFIG["debug"]}')
+
+    log.debug('%s %s', args.debug, CONFIG["debug"])
 
     if args.tracker:
         startApexTracker()
     elif args.generate:
         startHeatmapGenerator()
+    elif args.source is not None:
+        log.info("Source video file analysis not implemented yet.")
     else: # by default start the Apex Tracker
-        startApexTracker()  
-    
+        startApexTracker()
+
     sys.exit(0)

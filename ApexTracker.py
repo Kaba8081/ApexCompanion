@@ -1,16 +1,17 @@
 import logging as log
-import colorama
 
-import pygetwindow as gw
-import pytesseract
-import numpy as np
 import time
 import sys
 import os
 import re
+from enum import Enum
+
+import colorama
+import pygetwindow as gw
+import pytesseract
+import numpy as np
 
 from psutil import process_iter
-from enum import Enum
 
 from PIL import Image, ImageGrab
 import cv2
@@ -38,15 +39,15 @@ class TrackerControls(Enum):
 def devAnalyzePerformance(func: callable) -> callable:
     def inner_func(*args, **kwargs):
         start = time.time()
-        
+
         result = func(*args, **kwargs)
 
         end = time.time()
 
-        log.debug(f"Function '{func.__name__}' took '{str(end-start)[:6]}' seconds to execute.")
+        log.debug("Function '%s' took '%.6s' seconds to execute.", func.__name__, str(end-start))
 
         return result
-    
+
     return inner_func
 
 class ApexTracker:
@@ -125,25 +126,26 @@ class ApexTracker:
             return ImageGrab.grab()
         return None
 
-    def checkIfObjectOnScreen(self, object: str | list, conf: float=.8, screen: Image.Image=None) -> bool:
+    def checkIfObjectOnScreen(self, to_find: str | list, conf: float=.8, screen: Image.Image=None) -> bool:
         # Find given object on screen and return True if found, False otherwise
 
         if not screen:
             screen = self.captureScreen()
-        
-        object = [object] if type(object) == str else object
 
-        for obj in object:
+        to_find = [to_find] if type(to_find) == str else to_find
+        path = os.path.join(self.CONFIG["dirPath"], 'game_assets')
+
+        for obj in to_find:
             # convert PIL Image to numpy array
             img_rgb = np.array(screen.convert('RGB')) 
             # convert color space from RGB to GRAY
             img_gray = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY)
 
-            template = cv2.imread(f'{self.CONFIG["dirPath"]}\game_assets\{obj}.png', cv2.IMREAD_GRAYSCALE)
+            template = cv2.imread(os.path.join(path, f"{obj}.png"), cv2.IMREAD_GRAYSCALE)
             if template is None:
-                log.error(f"Error in loading template: {obj}")
+                log.error("Error in loading template: %s", obj)
                 return False
-            
+
             res = cv2.matchTemplate(img_gray, template, cv2.TM_CCOEFF_NORMED)
             loc = np.where(res >= conf)
 
@@ -176,18 +178,18 @@ class ApexTracker:
             else:
                 os.makedirs(save_dir, exist_ok=True)
 
-            log.info(f"Saving death location '{save_dir}/{last_file+1}.png'...")
-            
+            log.info("Saving death location '%s/%d.png'...", save_dir, last_file + 1)
+
             lastCapture.crop((55, 55, 229, 229)).save(f"{save_dir}/{last_file+1}.png")
-            
+
             return
-    
+
     def updateMap(self, screen: Image.Image) -> None:
         img = np.array(screen.convert('RGB')) 
         img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY) 
 
         curr_map = pytesseract.image_to_string(img).strip().upper()
-        log.debug(f"Map text: {curr_map}")
+        log.debug("Map text: %s", curr_map)
 
         if curr_map in self.APEX_MAPS:
             self.current_map = curr_map
@@ -209,14 +211,14 @@ class ApexTracker:
 
     def pauseRecording(self) -> None:
         self.recording = not self.recording
-        log.info(f"Recording: {colorama.Fore.GREEN if self.recording else colorama.Fore.RED}{self.recording}{colorama.Style.RESET_ALL}")
+        log.info("Recording: %s%s%s", colorama.Fore.GREEN if self.recording else colorama.Fore.RED, self.recording, colorama.Style.RESET_ALL)
 
     @devAnalyzePerformance
     def devFindOnScreen(
         self, 
-        object: str | list = None, 
-        conf: float = .8, 
-        screen: Image.Image = None, 
+        to_find: str | list = None,
+        conf: float = .8,
+        screen: Image.Image = None,
         method = cv2.TM_CCOEFF_NORMED
     ) -> bool:
 
@@ -226,33 +228,34 @@ class ApexTracker:
                 log.error("Could not capture the current screen.")
                 return False
 
-        if not object:
-            path = f'{self.CONFIG["dirPath"]}\game_assets\\'
+        if not to_find:
+            path = os.path.join(self.CONFIG["dirPath"], 'game_assets')
             files = [f for f in os.listdir(path)] if os.path.exists(path) else []
             files = [f[:-4] for f in files if f.endswith('.png')]
-            
-            object = files
 
-        object = [object] if type(object) == str else object
+            to_find = files
 
-        for obj in object:
+        to_find = [to_find] if type(to_find) == str else to_find
+        path = os.path.join(self.CONFIG["dirPath"], 'game_assets')
+
+        for obj in to_find:
             # convert PIL Image to numpy array
             img_rgb = np.array(screen.convert('RGB')) 
             # convert color space from RGB to GRAY
             img_gray = cv2.cvtColor(img_rgb, cv2.COLOR_BGR2GRAY)
 
-            template = cv2.imread(f'{self.CONFIG["dirPath"]}\game_assets\{obj}.png', cv2.IMREAD_GRAYSCALE)
+            template = cv2.imread(os.path.join(path, f"{obj}.png"), cv2.IMREAD_GRAYSCALE)
             if template is None:
                 log.error(f"Error in loading template: {obj}")
                 return False
-            
+
             w, h = template.shape[::-1]
             res = cv2.matchTemplate(img_gray, template, method)
             loc = np.where(res >= conf)
             matches_str = f"{colorama.Fore.RED if len(loc[0]) == 0 else colorama.Fore.GREEN}{len(loc[0])}{colorama.Style.RESET_ALL}"
             conf_str = f"{colorama.Fore.CYAN}{conf}{colorama.Style.RESET_ALL}"
 
-            log.debug(f"Found {matches_str} matches with {conf_str} confidence for {obj} on screen.")
+            log.debug("Found %s matches with %s confidence for %s on screen.", matches_str, conf_str, obj)
 
             for pt in zip(*loc[::-1]):
                 cv2.rectangle(img_rgb, pt, (pt[0] + w, pt[1] + h), (0, 0, 255), 2)
@@ -261,7 +264,7 @@ class ApexTracker:
             # if len(loc[0]) > 0:
             #     return True
             # return False
-    
+
     def devGenerateDeathFromScreen(self, smap: str, screen: Image.Image) -> None:
         # This function generates a minimap screenshot from
         # the current screen and saved in the supplied map folder.
@@ -283,8 +286,8 @@ class ApexTracker:
             else:
                 os.makedirs(save_dir, exist_ok=True)
 
-            log.info(f"Saving death location '{save_dir}/{last_file+1}.png'...")
-            
+            log.info("Saving death location '%s/%d.png'...", save_dir, last_file + 1)
+
             screen.crop((55, 55, 229, 229)).save(f"{save_dir}/{last_file+1}.png")
 
-        return 
+        return

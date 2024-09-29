@@ -1,13 +1,14 @@
 import logging as log
-import colorama
 
-from matplotlib import pyplot as plt
 from typing import Union
+import os
+import errno
+
+import colorama
+from matplotlib import pyplot as plt
 from PIL import Image
 import numpy as np
-import errno
 import cv2
-import os
 
 class HeatmapGenerator:
     def __init__(self, config) -> None:
@@ -17,25 +18,25 @@ class HeatmapGenerator:
         while True:
             try:
                 map_list = ",\n".join([f"{i+1}. {map_name}" for i, map_name in enumerate(self.CONFIG['maps'])])
-                log.info(f"Maps:\n{map_list}")
+                log.info("Maps:\n%s", map_list)
                 selected_map = input("Select a map to generate a heatmap for (leave empty for all maps): ")
-                
+
                 if len(selected_map) == 0:
                     return self.CONFIG['maps']
-                
+
                 selected_map = int(selected_map)
                 if not selected_map or selected_map < 1 or selected_map > len(map_list):
                     raise ValueError
 
                 return self.CONFIG['maps'][selected_map-1]
-            
+
             except ValueError:
                 log.error("Invalid input. Please select a valid option!")
 
     def getCoordsFromImage(self, img: Image.Image, smap: Image.Image, ratio:float=.75) -> tuple:
         matcher = cv2.DescriptorMatcher_create(cv2.DescriptorMatcher_FLANNBASED)
         detector = cv2.SIFT_create(nfeatures=0, nOctaveLayers=3, contrastThreshold=.04, edgeThreshold=10, sigma=1.6)
-        
+
         kp1, des1 = detector.detectAndCompute(img, None)
         kp2, des2 = detector.detectAndCompute(smap, None)
 
@@ -43,7 +44,7 @@ class HeatmapGenerator:
 
         good_matches_knn = []
         good_matches = []
-        
+
         # Filter matches using the Lowe's ratio test
         for m,n in matches:
             if m.distance < ratio * n.distance:
@@ -54,9 +55,10 @@ class HeatmapGenerator:
 
         if len(good_matches) < 10:
             if self.CONFIG['debug']:
-                plt.imshow(result, 'gray'),plt.show()
+                plt.imshow(result, 'gray')
+                plt.show()
             raise ValueError("Not enough good matches found.")
-        
+
         src_pts = np.float32([ kp1[m.queryIdx].pt for m in good_matches ]).reshape(-1,1,2)
         dst_pts = np.float32([ kp2[m.trainIdx].pt for m in good_matches ]).reshape(-1,1,2)
         M, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC,5.0)
@@ -78,9 +80,10 @@ class HeatmapGenerator:
                             matchesMask = matchesMask, # draw only inliers
                             flags = 2)
             result = cv2.drawMatches(img,kp1,smap,kp2,good_matches,None,**draw_params)
-            
-            plt.imshow(result, 'gray'),plt.show()
-        
+
+            plt.imshow(result, 'gray')
+            plt.show()
+
         return center
 
     def GenerateHeatmap(self,
@@ -116,17 +119,17 @@ class HeatmapGenerator:
         )
 
         return
-    
+
     def generate(self, smap: Union[str, list], colormap: str='viridis') -> None:
         # Use opencv's ORB as an alternative to SIFT or SURF
-        
+
         # If the input is a list, generate heatmaps for all maps in the list
         if type(smap) is list:
             for map_name in smap:
                 try:
                     self.generate(map_name, colormap)
                 except FileNotFoundError as e:
-                    log.error(f"An error occured: {colorama.Fore.RED}{e}{colorama.style.RESET_ALL}")
+                    log.error("An error occured: %s%s%s", colorama.Fore.RED, e, colorama.Style.RESET_ALL)
             return
 
         if not smap in self.CONFIG["maps"]:
@@ -145,7 +148,7 @@ class HeatmapGenerator:
         screenshots = [img for img in os.listdir(scrn_dir) if img.endswith('.png')]
         death_data = []
 
-        log.info(f"Generating heatmap data from './captures/{curr_map}/' ...")
+        log.info("Generating heatmap data from './captures/%s/' ...", curr_map)
         for img_name in screenshots:
             img_path = os.path.join(scrn_dir, img_name)
             img = cv2.imread(img_path,cv2.IMREAD_GRAYSCALE)
@@ -154,20 +157,21 @@ class HeatmapGenerator:
             try:
                 coords = self.getCoordsFromImage(img, map_img)
             except ValueError as e:
-                log.warning(f"Error for {img_name}: {e}")
+                log.warning("Error for %s: %s", img_name, e)
             except Exception as e:
-                log.error(f"An error occured for {img_name}: {e}")
+                log.error("An error occured for %s: %s", img_name, e)
                 return
             finally:
-                 if coords:
+                if coords:
                     death_data.append(coords)
-        if not len(death_data) > 0:
+
+        if len(death_data) <= 0:
             log.error("No valid death data found.")
             return
         
         self.GenerateHeatmap(death_data, curr_map, map_img, colormap, 20)
 
-        log.info(f"Done. Heatmap generated in './heatmap_{curr_map}.png'")
+        log.info("Done. Heatmap generated in './heatmap_%s.png'", curr_map)
         return
 
     def devFindOnMap(
@@ -198,7 +202,7 @@ class HeatmapGenerator:
                 detector = cv2.SIFT_create(**kwargs)
             case 'KAAZE':
                 pass
-        
+
         # Find the keypoints and descriptors
         kp1, des1 = detector.detectAndCompute(screen_img, None)
         kp2, des2 = detector.detectAndCompute(map_img, None)
@@ -234,9 +238,9 @@ class HeatmapGenerator:
     def devTestMapDisplayMenu(self, curr_conf: dict) -> None:
         log.debug("-- Object recognition test options --")
         for key in curr_conf.keys():
-            log.debug(f"{colorama.Fore.GREEN}{key}{colorama.Style.RESET_ALL}: {curr_conf[key]}")
+            log.debug("%s%s%s: %s", colorama.Fore.GREEN, key, colorama.Style.RESET_ALL, curr_conf[key])
         log.debug("-----")
-        
+
         return
 
     def devTestMapChangeSettings(self, 
@@ -255,7 +259,7 @@ class HeatmapGenerator:
         while True:
             log.debug("-- Change settings --")
             for i, key in enumerate(new_conf.keys()):
-                log.debug(f"{i+1}. Change {key}")
+                log.debug("%d. Change %s", i+1, key)
             log.debug("6. Exit")
             choice = input("Select an option: ")
 
@@ -269,7 +273,7 @@ class HeatmapGenerator:
             finally:
                 match choice:
                     case 1: # Change method
-                        log.debug(f"Available methods: {', '.join(avail_methods)}")
+                        log.debug("Available methods: %s", ', '.join(avail_methods))
                         try: 
                             temp = input("New method:")
                             if temp.upper() not in avail_methods:
@@ -279,6 +283,7 @@ class HeatmapGenerator:
                         except ValueError:
                             log.error("Invalid method!")
                             continue
+
                     case 2: # Change ratio
                         temp = input("New ratio:")
                         try:
@@ -289,25 +294,27 @@ class HeatmapGenerator:
 
                         except ValueError:
                             log.error("Invalid ratio!")
-                            continue    
+                            continue
+
                     case 3: # Change arguments
-                        temp = input("Add custom arguments (format: key1=value1,key2=value2,...): ")
+                        temp = input("Add custom arguments (format: key1:value1,key2:value2,...): ")
                         try:
                             temp = temp.split(",")
-                            temp_args = {}
+                            temp_args = curr_conf["args"]
                             for argument in temp:
-                                argument = argument.split("=")
+                                argument = argument.split(":")
                                 
                                 # try to set the arguments value to int,
                                 # if an exception would be thrown set it as str
                                 try:
                                     temp_args[argument[0]] = int(argument[1])
-                                except:
+                                except Exception:
                                     temp_args[argument[0]] = argument[1]
 
                             new_conf["args"] = temp_args
                         except IndexError:
                             log.error("Wrong format!")
+                            
                     case 4: # Change map
                         log.debug("-- Maps --")
                         log.debug(", ".join(self.CONFIG['maps']))
@@ -319,35 +326,24 @@ class HeatmapGenerator:
                         except ValueError:
                             log.error("Invalid map!")
                             continue
+
                     case 5: # Change path to file
-                        temp = input("New path to file (relative to map's folder):")
+                        new_name = input("New path to file (relative to map's folder):")
                         new_path = os.path.join(self.CONFIG["dirPath"], 'captures')
                         new_path = os.path.join(new_path, curr_conf["map"])
-                        new_path = os.path.join(new_path, temp)
 
                         try:
-                            if not os.path.exists(temp):
-                                raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), new_path)
-                            curr_conf['file'] = new_path
+                            if not new_name in os.listdir(new_path):
+                                raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), os.path.join(new_path, new_name))
+                            new_conf['file'] = new_name
                         except Exception as e:
-                            log.error(f"An exception occured while locating file: \n{e}")
+                            log.error("An exception occured while locating file: \n%s", e)
                             continue
+
                     case 6: # Exit
                         break
-                    
+
         return new_conf
-    
-    def devTestMapSelectImages(self) -> tuple:
-        map_img, screen_img = None, None
-        
-        map_img = os.path.join(self.CONFIG['dirPath'],os.path.join("maps","WORLD'S EDGE.png"))
-        map_img = cv2.imread(map_img, cv2.IMREAD_GRAYSCALE)
-        screen_img = os.path.join(self.CONFIG['dirPath'],"dev_screen.png")
-        screen_img = cv2.imread(screen_img, cv2.IMREAD_GRAYSCALE)
-
-        # TODO: implement a way to select the images from the directory
-
-        return map_img, screen_img
 
     def devTestObjectRecognition(self) -> None:
         avail_methods = ['SIFT', 'ORB', 'AKAZE']
@@ -356,7 +352,7 @@ class HeatmapGenerator:
             'ORB': {'nfeatures':15, 'WTA_K':2, 'scaleFactor':2, 'patchSize':31},
             'AKAZE': {}
         }
-        
+
         # default settings
         curr_conf = {
             'method': 'SIFT',
@@ -365,14 +361,14 @@ class HeatmapGenerator:
             'map': "WORLD'S EDGE",
             'file': "dev_screen.png"
         }
-        
+
         while True:
             self.devTestMapDisplayMenu(curr_conf)
             log.debug("1. Change settings")
             log.debug("2. Test with selected settings")
             log.debug("3. Exit")
             choice = input("Select an option: ")
-            
+
             try:
                 choice = int(choice)
                 if choice < 1 or choice > 3:
@@ -383,15 +379,24 @@ class HeatmapGenerator:
             finally:
                 match choice:
                     case 1: # Change settings
-                        curr_conf = self.devTestMapChangeSettings(curr_conf, avail_methods, default_args)
+                        curr_conf = self.devTestMapChangeSettings(curr_conf, default_args, avail_methods)
 
                     case 2: # Test with selected settings
-                        map_img, screen_img = self.devTestMapSelectImages()
+                        map_img = os.path.join(self.CONFIG['dirPath'],os.path.join("maps", f"{curr_conf['map']}.png"))
+                        map_img = cv2.imread(map_img, cv2.IMREAD_GRAYSCALE)
+
+                        screen_path = os.path.join(self.CONFIG["dirPath"], 'captures')
+                        screen_path = os.path.join(screen_path, curr_conf["map"])
+
+                        screen_img = os.path.join(screen_path, f"{curr_conf['file']}")
+                        screen_img = cv2.imread(screen_img, cv2.IMREAD_GRAYSCALE)
+                        log.debug(screen_path)
+
                         result_img = self.devFindOnMap(map_img, screen_img, curr_conf["method"], curr_conf["ratio"], **curr_conf["args"])
 
-                        plt.imshow(result_img), plt.show()
+                        plt.imshow(result_img)
+                        plt.show()
                     case 3: # Exit
                         break
-    
+
         return
-       
