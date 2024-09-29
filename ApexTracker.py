@@ -64,6 +64,19 @@ class ApexTracker:
 
         if self.CONFIG["debug"]:
             self.debug_ignore_focus = self.CONFIG["debug_ignore_focus"]
+        if self.CONFIG["videoAnalisys"]:
+            if not os.path.exists(self.CONFIG["videoPath"]):
+                log.error("Video file '%s' does not exist.", self.CONFIG["videoPath"])
+                sys.exit(1)
+
+            self.video_capture = cv2.VideoCapture(self.CONFIG["videoPath"])
+            if not self.video_capture.isOpened():
+                log.error("Error in opening video file.")
+                sys.exit(1)
+
+            self.video_fps = self.video_capture.get(cv2.CAP_PROP_FPS)
+            self.video_frames_to_skip = int(self.video_fps * self.CONFIG["screenCaptureDelay"])
+            self.video_current_frame = 0
 
     def update(self, action: TrackerControls) -> None:
         match action:
@@ -75,7 +88,7 @@ class ApexTracker:
                 # used for debugging purposes
                 log.debug(self.checkGameState())
         return
-    
+
     def checkGameState(self) -> GameState | None:
         # Check the current screen for its state and return the corresponding GameState
         curr_screen = self.captureScreen()
@@ -122,8 +135,23 @@ class ApexTracker:
         return None
 
     def captureScreen(self) -> Image.Image | None:
-        if (self.windowIsFocused() and self.recording) or self.CONFIG["debug"]:
-            return ImageGrab.grab()
+        """Capture the current screen and return the PIL Image object."""
+
+        if self.CONFIG["videoAnalisys"]:
+            self.video_capture.set(cv2.CAP_PROP_POS_FRAMES, self.video_current_frame)
+            ret, frame = self.video_capture.read()
+
+            if not ret:
+                log.debug("End of video or error in reading video frame.")
+                self.is_running = False
+                return None
+
+            self.video_current_frame += self.video_frames_to_skip
+            return Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+
+        else:
+            if (self.windowIsFocused() and self.recording) or self.CONFIG["debug"]:
+                return ImageGrab.grab()
         return None
 
     def checkIfObjectOnScreen(self, to_find: str | list, conf: float=.8, screen: Image.Image=None) -> bool:
@@ -152,7 +180,7 @@ class ApexTracker:
             if len(loc[0]) > 0:
                 return True
         return False
-    
+
     def saveDeathLocation(self, lastCapture: Image.Image) -> None:
         # Save the last screen capture before death
 
@@ -198,10 +226,10 @@ class ApexTracker:
             log.warning(f"Map name not recognized: {curr_map}")
         
         return
-    
+
     def gameIsRunning(self, process_name: str='r5apex.exe') -> bool | None:    
         return process_name in [p.name() for p in process_iter()]
-    
+
     def windowIsFocused(self, window_name: str='Apex Legends') -> bool | None:
         if self.CONFIG['debug_ignore_focus']:
             return True

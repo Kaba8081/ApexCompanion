@@ -8,6 +8,7 @@ import os
 import keyboard
 import colorama
 import pytesseract
+from pytesseract import TesseractNotFoundError
 
 from ApexTracker import ApexTracker, GameState, TrackerControls
 from HeatmapGenerator import HeatmapGenerator
@@ -37,6 +38,7 @@ CONFIG = {
     "keybinds": KEYBINDS,
     "dirPath": DIR_PATH,
     "dirDeathCapture": CAPTURE_PATH,
+
     "videoAnalisys": False,
     "videoPath": None,
 
@@ -65,8 +67,16 @@ ARGUMENTS = [
             "help": "Run the Heatmap generator",
             "action": "store_true"
         }
+    },
+    {
+        "options": ["-s","--source"],
+        "kwargs": {
+            "help": "Analyze provided video file",
+            "action": "store_true"
+        }
     }
 ]
+
 def argumentHelpFormater(prog) -> str:
     """Custom help formatter for argparse."""
     return argparse.HelpFormatter(prog, max_help_position=46, width=100)
@@ -109,7 +119,7 @@ def devSaveDeathsFromScreenshotDir() -> None:
         log.info("Saved all death locations.")
 
 def startApexTracker() -> None:
-    pytesseract.pytesseract.tesseract_cmd = os.path.join(DIR_PATH, os.path.join('tesseract', 'tesseract.exe'))
+    """Start the Apex Tracker process."""
     tracker = ApexTracker(CONFIG)
 
     for key in tracker.CONFIG["keybinds"].keys():
@@ -155,6 +165,7 @@ def startApexTracker() -> None:
     return
 
 def startHeatmapGenerator() -> None:
+    """Generate a heatmap from the saved death locations of a given map."""
     gen = HeatmapGenerator(CONFIG)
 
     if CONFIG["debug"]:
@@ -184,8 +195,39 @@ def startHeatmapGenerator() -> None:
 
     return
 
-if __name__ == "__main__":
+def startVideoAnalysis() -> None:
+    """Start the video analysis process."""
+    tracker = ApexTracker(CONFIG)
 
+    while tracker.is_running:
+        new_state = tracker.checkGameState()
+        if tracker.STATE != new_state and new_state is not None:
+            if new_state in [GameState.IN_DROPSHIP, GameState.ALIVE]:
+                tracker.video_frames_to_skip = int(tracker.video_fps* CONFIG["screenCaptureDelay"])
+                tracker.last_capture = None
+                tracker.recording = True
+
+            elif new_state in [GameState.KNOCKED, GameState.DEAD] and CONFIG["trackDeaths"]:
+                if tracker.last_capture:
+                    tracker.saveDeathLocation(tracker.last_capture)
+                    tracker.last_capture = None
+
+            elif new_state == GameState.IN_QUEUE:
+                # GameState.LOBBY could be skipped if the user instantly queues up
+                # so then the map probably stays the same
+                if tracker.last_capture:
+                    tracker.updateMap(tracker.last_capture.crop((50, 859, 326, 896)))
+
+            log.info("Changing game state to %s%s%s", colorama.Fore.GREEN, new_state.name, colorama.Style.RESET_ALL)
+            tracker.STATE = new_state
+        if tracker.STATE == GameState.LOBBY:
+            tracker.video_frames_to_skip = int(tracker.video_fps * .05) # lower delay for lobby
+            tracker.last_capture = tracker.captureScreen()
+
+    log.info("Video analysis complete.")
+    return
+
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Select which features to run.')
     parser.add_argument('--debug', help='Run in debug mode.', nargs='*')
     parser.add_argument('-t', '--tracker', help="Run the ApexTracker", nargs='*')
@@ -199,7 +241,7 @@ if __name__ == "__main__":
 
     # return an error if both 'tracker' and 'generate' args are supplied
     if sum(arg is not None for arg in [args.tracker, args.generate, args.source]) > 1:
-        log.error("Please select only one feature to run.")
+        print("Please select only one feature to run.")
         sys.exit(1)
 
     log.basicConfig(
@@ -208,15 +250,28 @@ if __name__ == "__main__":
         format='[%(levelname)s] %(message)s',
         datefmt="%Y-%m-%d %H:%M:%S",
         )
+    log.debug('Debug mode enabled.')
 
-    log.debug('%s %s', args.debug, CONFIG["debug"])
+    # check if pytesseact is installed correctly
+    try:
+        pytesseract.pytesseract.tesseract_cmd = os.path.join(DIR_PATH, os.path.join('tesseract', 'tesseract.exe'))
+        pytesseract.get_tesseract_version()
+        log.debug("Tesseract detected, version: %s", pytesseract.get_tesseract_version())
+    except TesseractNotFoundError as e:
+        log.error("Tesseract installation not found. Make sure it's installed and in your PATH.")
+        sys.exit(1)
+    except Exception as e:
+        log.error("An error occured when loading tesseract: \n", exc_info=e)
+        sys.exit(1)
 
     if args.tracker:
         startApexTracker()
     elif args.generate:
         startHeatmapGenerator()
     elif args.source is not None:
-        log.info("Source video file analysis not implemented yet.")
+        CONFIG['videoAnalisys'] = True
+        CONFIG['videoPath'] = args.source[0]
+        startVideoAnalysis()
     else: # by default start the Apex Tracker
         startApexTracker()
 
