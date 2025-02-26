@@ -1,14 +1,40 @@
-from typing import Any, Dict
+from typing import Any, Dict, List
 import json
 
 from app.models.instance import Instance
 from app.utils.app_info import AppInfo
+from app.utils.constants import TrackerControls, GameState
 
 class Settings:
     def __init__(self) -> None:
         self._settings_file = AppInfo().app_settings_file
 
         self.instances: Dict[str, Instance] = {"Default": Instance()}
+
+        self.supported_maps = [
+            "LOBBY",
+            "KINGS_CANYON",
+            "WORLDS_EDGE",
+            "OLYMPUS",
+            "STORM_POINT",
+            "BROKEN_MOON"
+        ]
+        self.tracker_game_states: GameState = GameState
+        self.tracker_keybinds: Dict[TrackerControls, List[str]]= {
+            TrackerControls.EXIT: ["page up"],
+            TrackerControls.RECORDING: ["m", "page down"],
+            TrackerControls.INTERACT: ["e"],
+            TrackerControls.TACTITAL: [],
+            TrackerControls.MOVE_FORWARD: [],
+            TrackerControls.MOVE_BACKWARD: [],
+            TrackerControls.MOVE_LEFT: [],
+            TrackerControls.MOVE_RIGHT: [],
+            TrackerControls.DEBUG: ["end"],
+        }
+        self.tracker_track_deaths: bool = True
+        self.tracker_ignore_focus: bool = False
+        self.tracker_screen_capture_delay: float = .5
+        self.app_debug = False
 
     def __setattr(self, key: str, value: Any) -> None:
         if key.startswith("_"):
