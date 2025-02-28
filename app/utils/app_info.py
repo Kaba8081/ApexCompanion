@@ -4,6 +4,7 @@ from pathlib import Path
 from platformdirs import PlatformDirs
 
 class AppInfo:
+    """Singleton object class providing information about the application."""
 
     _instance: "None | AppInfo" = None
 
@@ -40,11 +41,13 @@ class AppInfo:
         self._settings_file: Path = self._app_storage_folder / 'settings.json'
         self._app_captures_folder: Path = self._application_folder / 'captures'
         self._app_result_folder: Path = self._application_folder / 'results'
+        self._app_assets_folder: Path = self._application_folder / 'assets'
 
         self._app_storage_folder.mkdir(parents=True, exist_ok=True)
         self._user_log_folder.mkdir(parents=True, exist_ok=True)
         self._app_captures_folder.mkdir(parents=True, exist_ok=True)
         self._app_result_folder.mkdir(parents=True, exist_ok=True)
+        self._app_assets_folder.mkdir(parents=True, exist_ok=True)
 
         self._is_initialized: bool = True
 
@@ -80,9 +83,13 @@ class AppInfo:
     @property
     def app_result_folder(self) -> Path:
         return self._app_result_folder
+    
+    @property
+    def app_assets_folder(self) -> Path:
+        return self._app_assets_folder
     #endregion
 
-    #region File Directories
+    #region Files
     @property
     def app_settings_file(self) -> Path:
         return self._settings_file
