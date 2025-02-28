@@ -1,5 +1,7 @@
 import logging as log
 import colorama
+from time import sleep
+import keyboard
 import os
 import re
 
@@ -24,11 +26,55 @@ class ApexTracker:
 
         self._game_state = self._settings.tracker_game_states.LOGIN_SCREEN
         self._game_current_map = "LOBBY"
+        self._capture_delay = self._settings.tracker_screen_capture_delay
 
+        self._is_running = True
         self._is_recording = True
         self._is_debug = self._settings.app_debug
         
         self._last_capture = None
+    
+    def run(self) -> None:
+        self.bindControls()
+
+        while self._is_running:
+            if not self.gameIsRunning():
+                log.info("Waiting for the game to launch ...")
+                sleep(5)
+                continue
+
+            new_state = self.checkGameState()
+            if new_state != self._game_state:
+                if new_state in [GameState.IN_DROPSHIP, GameState.ALIVE]:
+                    self._capture_delay = self._settings.tracker_screen_capture_delay
+                    self._last_capture = self.captureScreen()
+                    self._is_recording = True
+                elif new_state in [GameState.KNOCKED, GameState.DEAD] and self._settings.tracker_track_deaths:
+                    if self._last_capture:
+                        self.saveDeathLocation(self._last_capture)
+                        self.last_capture = None
+                    else:
+                        log.warning("Tried to save death location without a valid capture.")
+                elif new_state == GameState.IN_QUEUE:
+                    if self._last_capture:
+                        self.updateMap(self._last_capture)
+
+                log.info("Game state changed: %s -> %s", self._game_state, new_state)
+                self._game_state = new_state
+
+            if self._game_state == GameState.LOBBY:
+                self._capture_delay = 0.05
+                self.last_capture = self.captureScreen()
+    
+            sleep(self._capture_delay)
+
+    def bindControls(self) -> None:
+        for key in self._settings.tracker_keybinds.keys():
+            for bind in self._settings.tracker_keybinds[key]:
+                keyboard.register_hotkey(
+                    bind,
+                    lambda: self.update(key)
+                )
 
     def update(self, action: TrackerControls) -> None:
         match action:
